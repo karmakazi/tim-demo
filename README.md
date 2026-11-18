@@ -6,7 +6,7 @@ A static Vercel-ready demo matching the layout and filter interactions of https:
 Import this repository. Select **Other** as the framework, leave Build Command empty, and use the repository root (`.`) as Output Directory. No install command or environment variables are required.
 
 ## Update the Algolia index
-**Re-upload the updated `records.json` to `torah-demo-records`.** Existing objectIDs are preserved so matching records can be replaced. The updated records include numeric `date_timestamp` fields (UTC seconds) required for date filters, and verified `audio_url` / `video_url` fields for direct media actions. An old upload still supports basic search but will not provide the new date filtering or media links.
+**Re-upload the updated `records.json` to `torah-demo-records`.** Existing objectIDs are preserved so matching records can be replaced. The updated records include numeric `date_timestamp` fields (UTC seconds) required for date filters, and verified `audio_url` / `video_url` fields for direct media actions. An old upload still supports basic search. Direct media links for the 120 bundled classes are also supplied by matching objectID or class URL, even if the Algolia upload lacks media fields. Date filtering still requires updated records. New classes outside the bundled sample must include audio_url/video_url in Algolia.
 
 Set these index settings in Algolia (JSON equivalent: `algolia-settings.json`):
 - Searchable attributes, in order: `title`, `speakers`, `topics`, `series`, `description`.

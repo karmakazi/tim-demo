@@ -11,7 +11,17 @@ const synonymGroups = [['shabbat','shabbos'],['bereishit','breisheet','bereshit'
 function tokens(text) {return normalize(text).replace(/[^a-z0-9\u0590-\u05ff]+/g,' ').split(' ').filter(Boolean).map(w => synonymGroups.find(g => g.includes(w))?.[0] || w);}
 function record(item) {
   const array = value => Array.isArray(value) ? value : value ? [value] : [];
-  return {...item, speakers: array(item.speakers), topics: array(item.topics), formats: array(item.formats)};
+  // Older Algolia uploads may lack media fields. Match verified bundled links
+  // by stable objectID or the original class URL, never by a guessed filename.
+  const bundled = state.records.find(r =>
+    (item.objectID && r.objectID === item.objectID) || (item.url && r.url === item.url)
+  ) || {};
+  return {
+    ...item,
+    audio_url: item.audio_url || item.audioUrl || item['url of audio'] || bundled.audio_url || '',
+    video_url: item.video_url || item.videoUrl || item['url of video'] || bundled.video_url || '',
+    speakers: array(item.speakers), topics: array(item.topics), formats: array(item.formats)
+  };
 }
 function url(value) {try {const u = new URL(value);return u.protocol === 'https:' && ['torahinmotion.org','www.torahinmotion.org','youtu.be','youtube.com','www.youtube.com'].includes(u.hostname) ? u.href : '';} catch {return '';}}
 function highlight(value) {
