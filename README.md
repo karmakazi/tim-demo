@@ -35,3 +35,6 @@ Local browser checks covered speaker suggestions/selection, combined date and sp
 
 ## Preview locally
 Run `python3 -m http.server 8765` in this directory, then open http://localhost:8765. Serve over HTTP; opening HTML directly from disk does not load JSON reliably.
+
+## Format filtering compatibility
+Format labels are normalized and augmented from verified audio/video links. In Algolia mode, format filtering is applied after media enrichment to all retrievable query matches, before result counts and pagination. This avoids losing matches with incomplete format metadata in an older upload. It may require extra search requests. If Algolia's retrieval limit prevents a complete set, the demo asks for a narrower query rather than showing incomplete results. Multiple formats use OR, consistent with the reference.

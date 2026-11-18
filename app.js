@@ -16,12 +16,19 @@ function record(item) {
   const bundled = state.records.find(r =>
     (item.objectID && r.objectID === item.objectID) || (item.url && r.url === item.url)
   ) || {};
-  return {
+  const normalized = {
     ...item,
     audio_url: item.audio_url || item.audioUrl || item['url of audio'] || bundled.audio_url || '',
     video_url: item.video_url || item.videoUrl || item['url of video'] || bundled.video_url || '',
     speakers: array(item.speakers), topics: array(item.topics), formats: array(item.formats)
   };
+  const labels = {article: 'Article', audio: 'Audio', video: 'Video', 'source sheet': 'Source sheet'};
+  const formats = new Set(normalized.formats.map(v => labels[normalize(v)] || v));
+  if (url(normalized.audio_url)) formats.add('Audio');
+  if (url(normalized.video_url)) formats.add('Video');
+  if (normalize(item.content_type) === 'article') formats.add('Article');
+  normalized.formats = [...formats];
+  return normalized;
 }
 function url(value) {try {const u = new URL(value);return u.protocol === 'https:' && ['torahinmotion.org','www.torahinmotion.org','youtu.be','youtube.com','www.youtube.com'].includes(u.hostname) ? u.href : '';} catch {return '';}}
 function highlight(value) {
@@ -93,13 +100,31 @@ async function run() {
     if (from && to && from > to) throw Error('The start date must be on or before the end date.');
     if (online()) {
       $('#result-count').textContent = 'Searching…';
-      const facetFilters = ['speakers','topics','formats'].filter(k => state[k].size).map(k => [...state[k]].map(v => `${k}:${v.replace(/^-/,'\\-')}`));
+      const facetFilters = ['speakers','topics'].filter(k => state[k].size).map(k => [...state[k]].map(v => `${k}:${v.replace(/^-/,'\\-')}`));
       const numericFilters = [];
       if (from) numericFilters.push('date_timestamp>='+Date.parse(from+'T00:00:00Z')/1000);
       if (to) numericFilters.push('date_timestamp<='+Date.parse(to+'T00:00:00Z')/1000);
-      const data = await searchAlgolia({query:$('#query').value,facetFilters,numericFilters,hitsPerPage:pageSize,page:state.page});
-      if (request !== state.request) return;
-      results(data.hits.map(record),data.nbHits,data.nbPages);
+      const params = {query:$('#query').value,facetFilters,numericFilters};
+      if (state.formats.size) {
+        // Filter using the same enriched media data as the action buttons.
+        // Applying an Algolia formats facet first would discard old uploads
+        // before their missing media fields can be filled from the sample.
+        const first = await searchAlgolia({...params,hitsPerPage:1000,page:0});
+        if (request !== state.request) return;
+        const hits = [...first.hits];
+        for (let p=1;p<first.nbPages;p++) {
+          const next = await searchAlgolia({...params,hitsPerPage:1000,page:p});
+          if (request !== state.request) return;
+          hits.push(...next.hits);
+        }
+        if (hits.length < first.nbHits) throw Error('This search exceeds the index retrieval limit. Narrow your search before filtering by format.');
+        const matches = hits.map(record).filter(r => r.formats.some(v => state.formats.has(v)));
+        results(matches.slice(state.page*pageSize,(state.page+1)*pageSize),matches.length,Math.ceil(matches.length/pageSize));
+      } else {
+        const data = await searchAlgolia({...params,hitsPerPage:pageSize,page:state.page});
+        if (request !== state.request) return;
+        results(data.hits.map(record),data.nbHits,data.nbPages);
+      }
     } else {
       const matches = localMatches();
       results(matches.slice(state.page*pageSize,(state.page+1)*pageSize),matches.length,Math.ceil(matches.length/pageSize));

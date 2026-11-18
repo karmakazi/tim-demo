@@ -7,16 +7,13 @@
     <title>Torah in Motion | Class Library</title>
     <link rel="stylesheet" href="https://use.typekit.net/cjc5mtm.css" />
     <link rel="stylesheet" href="https://torahinmotion.org/themes/vwm_base/fonts/abriltext/stylesheet.css" />
-    <link rel="stylesheet" href="style.css?v=3" />
-    <script src="config.js"></script><script src="app.js?v=3" defer></script>
+    <link rel="stylesheet" href="style.css?v=4" />
+    <script src="config.js"></script><script src="app.js?v=4" defer></script>
   </head>
   <body>
     <header class="site-header">
       <div class="shell header-inner">
-        <a class="brand" href="./" aria-label="Torah in Motion class library home">
-          <span class="brand-mark" aria-hidden="true">ת</span>
-          <strong>Torah in Motion</strong>
-        </a>
+
       <button id="connect" class="text-button" type="button">Algolia settings</button></div>
     </header>
 
@@ -71,11 +68,11 @@
                 <legend><span>Date range</span><button id="clear-dates" class="inline-clear" type="button" hidden>Clear</button></legend>
                 <div class="date-fields">
                   <label class="date-field">
-                    <span>From</span>
+                    <span class="sr-only">From</span>
                     <span class="date-input-wrap"><input id="date-from" type="date" /><button id="clear-from" class="date-clear" type="button" aria-label="Clear start date" hidden>×</button></span>
                   </label>
                   <label class="date-field">
-                    <span>To</span>
+                    <span class="sr-only">To</span>
                     <span class="date-input-wrap"><input id="date-to" type="date" /><button id="clear-to" class="date-clear" type="button" aria-label="Clear end date" hidden>×</button></span>
                   </label>
                 </div>
