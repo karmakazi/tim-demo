@@ -1,18 +1,144 @@
-const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let records=[],page=0,seq=0,timer,config={...window.TORAH_SEARCH_CONFIG};try{config=JSON.parse(localStorage.getItem('torah-search-config'))||config}catch{}
-const chosen={content_type:new Set(),formats:new Set(),speakers:new Set(),topics:new Set()};
-const groups=[['content_type','Content type'],['formats','Available formats'],['speakers','Teacher'],['topics','Topic']];
-const synonyms=[['shabbat','shabbos'],['bereishit','breisheet','bereshit','bereishis'],['chanukah','hanukkah','chanuka','hanukah'],['pesach','passover'],['sukkot','succot','sukkos']];
-function norm(s){return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9\u0590-\u05ff]+/g,' ').trim()}
-function canon(s){let out=norm(s).split(' ');return out.map(w=>{let g=synonyms.find(g=>g.includes(w));return g?g[0]:w}).join(' ')}
-function values(r,k){return Array.isArray(r[k])?r[k]:r[k]?[r[k]]:[]}
-function distance(a,b){if(Math.abs(a.length-b.length)>1)return 2;let prev=Array.from({length:b.length+1},(_,i)=>i);for(let i=1;i<=a.length;i++){let next=[i];for(let j=1;j<=b.length;j++)next[j]=Math.min(next[j-1]+1,prev[j]+1,prev[j-1]+(a[i-1]!==b[j-1]));prev=next}return prev[b.length]}
-function score(r,q){let title=canon(r.title),people=canon(r.speakers.join(' ')),text=canon([r.title,...r.speakers,...r.topics,r.series,r.description].join(' '));let words=text.split(' ');let qs=canon(q).split(' ').filter(Boolean);if(!qs.every(t=>words.some(w=>w.startsWith(t)||(t.length>4&&distance(t,w)<=1))))return -1;return qs.reduce((n,t)=>n+(title.includes(t)?6:people.includes(t)?4:1),0)}
-function filters(){ $('#filters').innerHTML=groups.map(([k,label])=>{let counts={};records.forEach(r=>values(r,k).forEach(v=>counts[v]=(counts[v]||0)+1));let entries=Object.entries(counts).sort((a,b)=>b[1]-a[1]);return `<div class="filtergroup"><h3>${label}</h3>${k==='speakers'||k==='topics'?`<select data-select="${k}" aria-label="${label}"><option value="">All ${label.toLowerCase()}s</option>${entries.map(([v])=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')}</select>`:entries.map(([v,n])=>`<label><input type="checkbox" data-key="${k}" value="${esc(v)}"><span>${esc(v)}</span><span class="n">${n}</span></label>`).join('')}</div>`}).join('');$('#filters').onchange=e=>{let k=e.target.dataset.key||e.target.dataset.select;if(!k)return;if(e.target.dataset.select){chosen[k].clear();if(e.target.value)chosen[k].add(e.target.value)}else e.target.checked?chosen[k].add(e.target.value):chosen[k].delete(e.target.value);page=0;run()}}
-function active(){ $('#active').innerHTML=Object.entries(chosen).flatMap(([k,vs])=>[...vs].map(v=>`<button data-remove="${esc(k)}" data-value="${esc(v)}">${esc(v)} ×</button>`)).join('');$('#active').onclick=e=>{let b=e.target.closest('button');if(!b)return;chosen[b.dataset.remove].delete(b.dataset.value);sync();page=0;run()}}
-function sync(){document.querySelectorAll('[data-key]').forEach(i=>i.checked=chosen[i.dataset.key].has(i.value));document.querySelectorAll('[data-select]').forEach(i=>i.value=[...chosen[i.dataset.select]][0]||'')}
-function safeURL(url){try{const u=new URL(url);return u.protocol==='https:'&&u.hostname==='torahinmotion.org'?u.href:'https://torahinmotion.org'}catch{return 'https://torahinmotion.org'}}
-function highlight(s){let text=esc(s);let terms=norm($('#query').value).split(' ').filter(t=>t.length>1);for(let t of terms){let re=new RegExp('('+t+')','ig');text=text.replace(re,'<mark>$1</mark>')}return text}
-function render(hits,total,pages){$('#count').innerHTML=`<strong>${total.toLocaleString()}</strong> ${$('#query').value?'results for “'+esc($('#query').value)+'”':'classes & articles'}`;$('#results').innerHTML=hits.length?hits.map(r=>`<article class="card ${r.content_type==='Article'?'article':''}"><div class="typeicon" aria-hidden="true">${r.content_type==='Article'?'≡':'▷'}</div><div><div class="meta"><span>${esc(r.content_type)}</span><span>·</span><span>${r.date?esc(new Date(r.date+'T12:00:00').toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'})):''}</span></div><h3><a href="${esc(safeURL(r.url))}" target="_blank" rel="noopener">${highlight(r.title)}</a></h3><p class="speaker">${esc((r.speakers||[]).join(' · '))}</p>${r.description?`<p class="description">${highlight(r.description)}</p>`:''}${r.series?`<p class="series">${esc(r.series)}</p>`:''}<div class="tags">${[...(r.topics||[]).slice(0,3),...(r.formats||[])].map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></div><a class="arrow" aria-label="Open ${esc(r.title)}" href="${esc(safeURL(r.url))}" target="_blank" rel="noopener">↗</a></article>`).join(''):`<div class="empty"><h3>No results yet.</h3><p>Try a broader term or remove a filter. This demo includes a sample of the full library.</p><button class="quiet" onclick="reset()">Clear search and filters</button></div>`;let start=Math.max(0,Math.min(page-2,pages-5));$('#pagination').innerHTML=pages>1?`${page?'<button data-page="'+(page-1)+'" aria-label="Previous page">←</button>':''}${Array.from({length:Math.min(5,pages)},(_,i)=>start+i).map(p=>`<button data-page="${p}" class="${p===page?'selected':''}" ${p===page?'aria-current="page"':''}>${p+1}</button>`).join('')}${page<pages-1?'<button data-page="'+(page+1)+'" aria-label="Next page">→</button>':''}`:'';$('#pagination').onclick=e=>{let p=e.target.dataset.page;if(p===undefined)return;page=Number(p);run();$('#results').focus()}}
-async function run(){let id=++seq;active();$('#error').hidden=true;const online=!!(config.appId&&config.apiKey&&config.indexName);$('#mode').textContent=online?'Algolia search':'Sample library';$('#coverage').textContent=online?'Live search · Demo index':'264 public classes & articles. Local search until Algolia is connected.';$('#sort').disabled=online;$('#sort').title=online?'Algolia uses the relevance order configured on your index.':'';try{if(online){$('#count').textContent='Searching…';const facetFilters=Object.entries(chosen).filter(([,s])=>s.size).map(([k,s])=>[...s].map(v=>k+':'+v));let res=await fetch(`https://${config.appId}-dsn.algolia.net/1/indexes/${encodeURIComponent(config.indexName)}/query`,{method:'POST',headers:{'Content-Type':'application/json','X-Algolia-Application-Id':config.appId,'X-Algolia-API-Key':config.apiKey},body:JSON.stringify({query:$('#query').value,facetFilters,page,hitsPerPage:10})});if(!res.ok)throw Error(res.status===403?'The search key was rejected. Check its search permission and index restriction.':res.status===404?'The index was not found. Check the index name and upload your records.':'Algolia returned an error. Check the connection settings.');let data=await res.json();if(id!==seq)return;render(data.hits,data.nbHits,data.nbPages)}else{let q=$('#query').value;let hits=records.map(r=>({...r,_score:score(r,q)})).filter(r=>r._score>=0&&Object.entries(chosen).every(([k,s])=>!s.size||values(r,k).some(v=>s.has(v))));let sort=$('#sort').value;hits.sort((a,b)=>sort==='oldest'?a.date.localeCompare(b.date):sort==='newest'?b.date.localeCompare(a.date):b._score-a._score||b.date.localeCompare(a.date));render(hits.slice(page*10,page*10+10),hits.length,Math.ceil(hits.length/10))}}catch(e){if(id!==seq)return;$('#error').textContent=e.message||'Unable to reach Algolia. Please check your connection.';$('#error').hidden=false;$('#count').textContent='Search unavailable';$('#results').innerHTML='';$('#pagination').innerHTML=''}}
-function reset(){Object.values(chosen).forEach(s=>s.clear());$('#query').value='';page=0;sync();run()}$('#clear').onclick=reset;$('#query').oninput=()=>{page=0;clearTimeout(timer);timer=setTimeout(run,180)};$('#searchform').onsubmit=e=>{e.preventDefault();clearTimeout(timer);page=0;run()};$('#sort').onchange=()=>{page=0;run()};document.querySelectorAll('[data-query]').forEach(b=>b.onclick=()=>{$('#query').value=b.dataset.query;page=0;run()});document.addEventListener('keydown',e=>{if(e.key==='/'&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)&&!$('#settings').open){e.preventDefault();$('#query').focus()}});$('#connect').onclick=()=>{for(let k of ['appId','apiKey','indexName'])$('#configform').elements[k].value=config[k]||'';$('#settings').showModal()};$('#close').onclick=()=>$('#settings').close();$('#configform').onsubmit=e=>{e.preventDefault();config=Object.fromEntries(new FormData(e.target));config.appId=config.appId.trim();config.apiKey=config.apiKey.trim();config.indexName=config.indexName.trim();try{localStorage.setItem('torah-search-config',JSON.stringify(config))}catch{}$('#settings').close();page=0;run()};$('#disconnect').onclick=()=>{config={};try{localStorage.removeItem('torah-search-config')}catch{}$('#settings').close();page=0;run()};fetch('records.json').then(r=>{if(!r.ok)throw Error();return r.json()}).then(r=>{records=r;filters();run()}).catch(()=>{$('#error').hidden=false;$('#error').textContent='The sample library could not be loaded. Please reload this page.'});
+const $ = selector => document.querySelector(selector);
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const normalize = value => String(value ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+const state = {records: [], speakers: new Set(), topics: new Set(), formats: new Set(), page: 0, request: 0, facets: null};
+const pageSize = 20;
+let timer;
+let config = {...window.TORAH_SEARCH_CONFIG};
+try { const stored = JSON.parse(localStorage.getItem('torah-search-config')); if (stored) config = {...config,...stored}; } catch {}
+const online = () => Boolean(config.appId && config.apiKey && config.indexName);
+const synonymGroups = [['shabbat','shabbos'],['bereishit','breisheet','bereshit','bereishis'],['chanukah','hanukkah','chanuka','hanukah'],['pesach','passover'],['sukkot','succot','sukkos']];
+function tokens(text) {return normalize(text).replace(/[^a-z0-9\u0590-\u05ff]+/g,' ').split(' ').filter(Boolean).map(w => synonymGroups.find(g => g.includes(w))?.[0] || w);}
+function record(item) {
+  const array = value => Array.isArray(value) ? value : value ? [value] : [];
+  return {...item, speakers: array(item.speakers), topics: array(item.topics), formats: array(item.formats)};
+}
+function url(value) {try {const u = new URL(value);return u.protocol === 'https:' && ['torahinmotion.org','www.torahinmotion.org','youtu.be','youtube.com','www.youtube.com'].includes(u.hostname) ? u.href : '';} catch {return '';}}
+function highlight(value) {
+  const terms = [...new Set(tokens($('#query').value))].sort((a,b) => b.length-a.length);
+  if (!terms.length) return escapeHtml(value);
+  const pattern = new RegExp('('+terms.join('|')+')','gi');
+  return String(value ?? '').split(pattern).map((part,i) => i%2 ? '<mark>'+escapeHtml(part)+'</mark>' : escapeHtml(part)).join('');
+}
+function active() {return Boolean($('#query').value || $('#date-from').value || $('#date-to').value || state.speakers.size || state.topics.size || state.formats.size);}
+function updateControls() {
+  $('#clear-filters').hidden = !active();
+  $('#clear-dates').hidden = !$('#date-from').value && !$('#date-to').value;
+  $('#clear-from').hidden = !$('#date-from').value;
+  $('#clear-to').hidden = !$('#date-to').value;
+  for (const [key,prefix] of [['speakers','speaker'],['topics','tag']]) {
+    $('#'+prefix+'-selected').innerHTML = [...state[key]].map(v => `<span class="selected-facet">${escapeHtml(v)}<button type="button" data-remove="${key}" data-value="${escapeHtml(v)}" aria-label="Remove ${escapeHtml(v)}">×</button></span>`).join('');
+  }
+  $('#format-options').innerHTML = ['Article','Audio','Video'].map(v => `<button type="button" class="format-option${state.formats.has(v)?' is-selected':''}" data-format="${v}" aria-pressed="${state.formats.has(v)}">${v.toLowerCase()}</button>`).join('');
+}
+function renderFacet(key,prefix) {
+  const term = normalize($('#'+prefix+'-search').value);
+  const values = state.facets?.[key] ? Object.keys(state.facets[key]) : [...new Set(state.records.flatMap(r => r[key]))];
+  const matches = values.filter(v => !state[key].has(v) && normalize(v).includes(term)).sort((a,b) => a.localeCompare(b));
+  $('#'+prefix+'-options').innerHTML = matches.length ? matches.map(v => `<button class="facet-option" type="button" data-facet="${key}" data-value="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join('') : '<span class="status">No matches</span>';
+}
+function refreshFacets() {renderFacet('speakers','speaker');renderFacet('topics','tag');}
+function localMatches() {
+  const query = tokens($('#query').value);
+  return state.records.map(r => {
+    const title = tokens(r.title).join(' ');
+    const text = tokens([r.title,r.description,...r.speakers,...r.topics,r.series].join(' ')).join(' ');
+    const match = query.every(t => text.includes(t));
+    return {...r,_score:query.reduce((s,t) => s+(title.includes(t)?2:0),0),_match:match};
+  }).filter(r => r._match && ['speakers','topics','formats'].every(k => !state[k].size || r[k].some(v => state[k].has(v))) && (!$('#date-from').value || r.date >= $('#date-from').value) && (!$('#date-to').value || r.date <= $('#date-to').value))
+    .sort((a,b) => b._score-a._score || (b.date||'').localeCompare(a.date||''));
+}
+function resultCard(r) {
+  const link = url(r.url);
+  const date = r.date ? new Date(r.date.slice(0,10)+'T12:00:00') : null;
+  const displayDate = date && !Number.isNaN(+date) ? date.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}) : '';
+  const actions = [];
+  if (r.content_type === 'Article' && link) actions.push(['Read article',link,'▤']);
+  if (url(r.audio_url)) actions.push(['Listen',url(r.audio_url),'◖']);
+  if (url(r.video_url)) actions.push(['Watch video',url(r.video_url),'▶']);
+  if (!actions.length && link) actions.push(['View class',link,'↗']);
+  return `<article class="class-card"><div class="class-card-content"><div class="class-date">${escapeHtml(displayDate)}</div><h3>${link?`<a href="${escapeHtml(link)}" target="_blank" rel="noopener">${highlight(r.title)}</a>`:highlight(r.title)}</h3>${r.description?`<p>${highlight(r.description)}</p>`:''}<div class="card-meta"><span class="speaker">${escapeHtml(r.speakers.join(' · '))}</span>${r.topics.length?`<span class="tags"><strong>Topics/Tags:</strong> ${escapeHtml(r.topics.join(' · '))}</span>`:''}${r.series?`<span class="series">${escapeHtml(r.series)}</span>`:''}</div></div><div class="format-actions">${actions.map(([label,href,icon]) => `<a class="format-action" href="${escapeHtml(href)}" target="_blank" rel="noopener" aria-label="${escapeHtml(label+': '+r.title)}"><span aria-hidden="true">${icon}</span>${label}<span aria-hidden="true">→</span></a>`).join('')}</div></article>`;
+}
+function results(hits,total,pages) {
+  $('#status').hidden = true;
+  $('#results-heading').textContent = active() ? 'Matching classes & articles' : 'All classes & articles';
+  $('#result-count').textContent = `${total.toLocaleString()} ${total === 1 ? 'result' : 'results'}`;
+  $('#class-list').innerHTML = hits.length ? hits.map(resultCard).join('') : '<div class="empty"><h3>No classes found</h3><p>Try broadening your search or clearing a filter.</p></div>';
+  const start = Math.max(0,Math.min(state.page-2,pages-5));
+  $('#pagination').innerHTML = pages > 1 ? `${state.page?`<button data-page="${state.page-1}" aria-label="Previous page">←</button>`:''}${Array.from({length:Math.min(5,pages)},(_,i) => start+i).map(p => `<button data-page="${p}" ${p===state.page?'aria-current="page"':''}>${p+1}</button>`).join('')}${state.page<pages-1?`<button data-page="${state.page+1}" aria-label="Next page">→</button>`:''}` : '';
+}
+async function searchAlgolia(params) {
+  if (!/^[a-zA-Z0-9]+$/.test(config.appId)) throw Error('Check your Algolia Application ID.');
+  const response = await fetch(`https://${config.appId}-dsn.algolia.net/1/indexes/${encodeURIComponent(config.indexName)}/query`, {method:'POST',headers:{'Content-Type':'application/json','X-Algolia-Application-Id':config.appId,'X-Algolia-API-Key':config.apiKey},body:JSON.stringify(params)});
+  if (!response.ok) throw Error(response.status===403?'Algolia rejected the search key. Check its search permission and index restriction.':response.status===404?'Algolia index not found. Check the index name in settings.':'Algolia search failed. Check that speakers, topics, and formats are enabled for faceting.');
+  return response.json();
+}
+async function run() {
+  const request = ++state.request;
+  updateControls();refreshFacets();
+  $('#status').hidden = true;$('#status').classList.remove('error');
+  $('#connection-status').textContent = online() ? `Algolia · ${config.indexName}` : `${state.records.length} public sample records · Local demo · Connect Algolia in settings`;
+  const from = $('#date-from').value, to = $('#date-to').value;
+  try {
+    if (from && to && from > to) throw Error('The start date must be on or before the end date.');
+    if (online()) {
+      $('#result-count').textContent = 'Searching…';
+      const facetFilters = ['speakers','topics','formats'].filter(k => state[k].size).map(k => [...state[k]].map(v => `${k}:${v.replace(/^-/,'\\-')}`));
+      const numericFilters = [];
+      if (from) numericFilters.push('date_timestamp>='+Date.parse(from+'T00:00:00Z')/1000);
+      if (to) numericFilters.push('date_timestamp<='+Date.parse(to+'T00:00:00Z')/1000);
+      const data = await searchAlgolia({query:$('#query').value,facetFilters,numericFilters,hitsPerPage:pageSize,page:state.page});
+      if (request !== state.request) return;
+      results(data.hits.map(record),data.nbHits,data.nbPages);
+    } else {
+      const matches = localMatches();
+      results(matches.slice(state.page*pageSize,(state.page+1)*pageSize),matches.length,Math.ceil(matches.length/pageSize));
+    }
+  } catch(error) {
+    if (request !== state.request) return;
+    $('#status').hidden = false;$('#status').classList.add('error');$('#status').textContent = error.message || 'Unable to load search results.';
+    $('#result-count').textContent = 'Search unavailable';$('#class-list').innerHTML = '';$('#pagination').innerHTML = '';
+  }
+}
+async function loadOnlineFacets() {
+  const identity = JSON.stringify(config);
+  state.facets = null;
+  if (!online()) {refreshFacets();return;}
+  try {
+    const data = await searchAlgolia({query:'',hitsPerPage:0,facets:['speakers','topics'],maxValuesPerFacet:1000});
+    if (JSON.stringify(config)!==identity) return;
+    state.facets = data.facets || {};refreshFacets();
+  } catch { /* Main search displays connection failures; local facets remain available. */ }
+}
+function changed() {state.page=0;run();}
+function clearAll() {
+  $('#query').value='';$('#date-from').value='';$('#date-to').value='';
+  for (const key of ['speakers','topics','formats']) state[key].clear();
+  $('#speaker-search').value='';$('#tag-search').value='';changed();$('#query').focus();
+}
+$('#query').addEventListener('input',() => {clearTimeout(timer);timer=setTimeout(changed,180);});
+$('#search-form').addEventListener('submit',e => {e.preventDefault();clearTimeout(timer);changed();});
+for (const [key,prefix] of [['speakers','speaker'],['topics','tag']]) {
+  $('#'+prefix+'-search').addEventListener('input',() => renderFacet(key,prefix));
+  $('#'+prefix+'-options').addEventListener('click',e => {
+    const b=e.target.closest('[data-facet]');if(!b)return;
+    state[key].add(b.dataset.value);$('#'+prefix+'-search').value='';changed();$('#'+prefix+'-search').focus();
+  });
+  $('#'+prefix+'-selected').addEventListener('click',e => {const b=e.target.closest('[data-remove]');if(!b)return;state[key].delete(b.dataset.value);changed();$('#'+prefix+'-search').focus();});
+  $('#'+prefix+'-search').addEventListener('keydown',e => {if(e.key==='Escape'){$('#'+prefix+'-search').blur();}if(e.key==='ArrowDown'){e.preventDefault();$('#'+prefix+'-options button')?.focus();}});
+  $('#'+prefix+'-options').addEventListener('keydown',e => {const buttons=[...$('#'+prefix+'-options').querySelectorAll('button')],i=buttons.indexOf(document.activeElement);if(e.key==='ArrowDown'){e.preventDefault();buttons[(i+1)%buttons.length]?.focus();}if(e.key==='ArrowUp'){e.preventDefault();buttons[(i-1+buttons.length)%buttons.length]?.focus();}if(e.key==='Escape')$('#'+prefix+'-search').focus();});
+}
+$('#format-options').addEventListener('click',e => {const b=e.target.closest('[data-format]');if(!b)return;state.formats.has(b.dataset.format)?state.formats.delete(b.dataset.format):state.formats.add(b.dataset.format);changed();});
+for(const side of ['from','to']) {
+  $('#date-'+side).addEventListener('change',changed);
+  $('#clear-'+side).addEventListener('click',() => {$('#date-'+side).value='';changed();});
+}
+$('#clear-dates').addEventListener('click',() => {$('#date-from').value='';$('#date-to').value='';changed();});
+$('#clear-filters').addEventListener('click',clearAll);
+$('#toggle-filters').addEventListener('click',() => {const hidden=!$('#filter-controls').hidden;$('#filter-controls').hidden=hidden;$('#toggle-filters').setAttribute('aria-expanded',String(!hidden));$('#toggle-filters').textContent=hidden?'Show filters':'Hide filters';});
+$('#pagination').addEventListener('click',e => {const b=e.target.closest('[data-page]');if(!b)return;state.page=Number(b.dataset.page);run();$('#results-heading').scrollIntoView({block:'start'});});
+$('#connect').addEventListener('click',() => {for(const k of ['appId','apiKey','indexName'])$('#configform').elements[k].value=config[k]|| (k==='indexName'?'torah-demo-records':'');$('#settings').showModal();});
+$('#close').addEventListener('click',() => $('#settings').close());
+$('#configform').addEventListener('submit',e => {e.preventDefault();config=Object.fromEntries([...new FormData(e.target)].map(([k,v]) => [k,v.trim()]));try{localStorage.setItem('torah-search-config',JSON.stringify(config));}catch{}$('#settings').close();state.page=0;run();loadOnlineFacets();});
+$('#disconnect').addEventListener('click',() => {config={indexName:'torah-demo-records'};try{localStorage.removeItem('torah-search-config');}catch{}state.facets=null;$('#settings').close();changed();});
+fetch('records.json').then(r => {if(!r.ok)throw Error('The sample records could not be loaded.');return r.json();}).then(data => {state.records=data.map(record);run();loadOnlineFacets();}).catch(error => {$('#status').textContent=error.message;$('#status').classList.add('error');});

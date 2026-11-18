@@ -1,37 +1,37 @@
-# Torah in Motion — search prototype
+# Torah in Motion library search demo
 
-A plain static prototype with 264 public records (120 classes and 144 articles). No build step, framework, dependencies, or Drupal installation required.
+A static Vercel-ready demo matching the layout and filter interactions of https://akelman.github.io/tim/example_library_search/. Uses 264 public records: 120 classes and 144 articles.
 
 ## Deploy on Vercel
-1. Unzip this package. Put the files inside `vercel-demo` at the root of a GitHub repository.
-2. Import that repository in Vercel.
-3. Set Framework Preset to **Other**. Leave Build Command empty and Output Directory at the project root (`.`). No install command is needed.
-4. Deploy.
+Import this repository. Select **Other** as the framework, leave Build Command empty, and use the repository root (`.`) as Output Directory. No install command or environment variables are required.
 
-Alternatively, run the Vercel CLI from inside `vercel-demo` and follow its prompts. No environment variables are required for this static prototype.
+## Update the Algolia index
+**Re-upload the updated `records.json` to `torah-demo-records`.** Existing objectIDs are preserved so matching records can be replaced. The updated records include numeric `date_timestamp` fields (UTC seconds) required for date filters, and verified `audio_url` / `video_url` fields for direct media actions. An old upload still supports basic search but will not provide the new date filtering or media links.
 
-## Connect Algolia
-1. Create an index named `torah-demo-records` and upload `records.json` using **Upload a File**.
-2. In index configuration, set searchable attributes to `title`, `speakers`, `topics`, `series`, `description`, in that order.
-3. Set attributes for faceting to `content_type`, `formats`, `searchable(speakers)`, `searchable(topics)`. The corresponding settings are in `algolia-settings.json`.
-4. Add the synonym groups from `algolia-synonyms.json` in the Synonyms settings.
-5. Create an API key with only the **search** permission, restricted to `torah-demo-records`.
-6. Click **Connect Algolia** in the prototype and enter the Application ID, search-only key, and index name. Settings are saved in that browser only.
+Set these index settings in Algolia (JSON equivalent: `algolia-settings.json`):
+- Searchable attributes, in order: `title`, `speakers`, `topics`, `series`, `description`.
+- Attributes for faceting: `content_type`, `formats`, `searchable(speakers)`, `searchable(topics)`.
+- Custom ranking: descending `date_timestamp`, as a tie breaker after relevance.
+- Add synonym groups from `algolia-synonyms.json`.
 
-To connect Algolia for every visitor, fill in `appId`, `apiKey`, and `indexName` in `config.js` and redeploy. These values are visible to visitors: use only the index-restricted search key. Never place an Admin or write key in this package. Vercel environment variables do not automatically populate static JavaScript.
+Use **Algolia settings** to enter the Application ID, a search-only API key restricted to `torah-demo-records`, and the index name. Settings are saved only in the current browser. To connect every visitor, set those public search credentials in `config.js` and redeploy. Never add an Admin or write key to frontend files. Vercel environment variables do not automatically populate static JavaScript.
 
-## What is included
-- Search as you type, sample-mode typo tolerance and transliteration matching
-- Content type, format, teacher, and topic filters
-- Pagination, empty state, and connection error messages
-- Original content links; no media hosting or playback
-- Algolia REST search integration ready for account credentials
+## Behavior
+- Search as you type, with a submit fallback.
+- Searchable speaker/topic dropdowns with multiple selections and removable chips.
+- OR within each filter group, AND between groups.
+- Inclusive start/end dates, individual date clear buttons, and range validation.
+- Article/audio/video toggle filters, Clear all, and Hide/Show filters.
+- Responsive result cards with Read article, Listen, and Watch video actions where source links exist.
+- Pagination at 20 results per page, empty results, and connection error feedback.
+- Local mode searches bundled records; connected mode queries Algolia and obtains speaker/topic options from its facets (up to 1,000 values per facet).
 
-Without Algolia credentials, search runs locally and is labeled Sample library. Algolia ranking, typo tolerance, and synonyms use your index configuration once connected. Date sorting is available locally; Algolia mode uses relevance and disables date sorting until sort replicas are implemented. Filter options and counts come from the bundled sample, so refresh records.json if the index grows beyond it.
+## Data and limits
+Public listings were sampled November 18, 2026. Recording contents are not transcribed. Article descriptions are excerpts. Class topics are populated where verified in the reference dataset, and otherwise omitted. No classification is inferred. Direct media links reflect the public source; a source can contain mismatched filenames or broken links. Dates show day precision because recording time ranges were not collected. All media opens externally.
 
-The data was collected from public listing pages on November 18, 2026. Article descriptions are short listing excerpts; recordings have no transcripts. Class topics were not present on the listing pages and remain empty; series and titles are searchable. This is a sample of the full library. Nothing is installed on Torah in Motion's live website.
+The layout and styling are adapted from the user-supplied reference page. Its externally hosted font stylesheets have local font fallbacks.
 
-## Local preview
-Serve this directory using any static web server, for example `python3 -m http.server 8765`, then open http://localhost:8765. Opening index.html directly from disk will not load records.json in most browsers.
+Local browser checks covered speaker suggestions/selection, combined date and speaker filters, clearing filters, and collapse/expand. JavaScript syntax is checked. Live Algolia behavior needs verification with your uploaded index and credentials; none are available in the repository.
 
-Browser checks covered local speaker search and the empty state. Live Algolia connection cannot be verified until credentials and an uploaded index are available. Vercel deployment is prepared, not deployed by this package.
+## Preview locally
+Run `python3 -m http.server 8765` in this directory, then open http://localhost:8765. Serve over HTTP; opening HTML directly from disk does not load JSON reliably.

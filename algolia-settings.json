@@ -12,5 +12,8 @@
     "searchable(speakers)",
     "searchable(topics)"
   ],
-  "hitsPerPage": 10
+  "hitsPerPage": 10,
+  "customRanking": [
+    "desc(date_timestamp)"
+  ]
 }

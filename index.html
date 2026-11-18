@@ -1,1 +1,109 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Search prototype</title><link rel="stylesheet" href="style.css?v=2"></head><body><a class="skip" href="#results">Skip to results</a><header><button id="connect">Algolia settings</button></header><main><section class="hero"><h1>Search prototype</h1><p>Demo using a sample of public classes and articles.</p><form id="searchform" role="search"><label for="query" class="sr">Search the learning library</label><input id="query" type="search" placeholder="Search a topic, teacher, or question…" autocomplete="off"></form></section><div class="library"><aside><div class="filterheading"><h2>Refine your search</h2><button id="clear">Reset</button></div><div id="filters"></div><div class="sample"><span class="dot"></span><strong id="mode">Sample library</strong><p id="coverage">Loading public content…</p></div></aside><section class="resultsarea" aria-label="Search results"><div class="toolbar"><p id="count" aria-live="polite"></p><label>Sort by <select id="sort"><option value="relevance">Relevance</option><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label></div><div id="active"></div><p id="error" role="alert" hidden></p><div id="results" tabindex="-1"></div><div id="pagination"></div></section></div></main><dialog id="settings"><form id="configform"><button type="button" id="close" class="close" aria-label="Close">×</button><h2>Connect your search</h2><p>Use an Algolia search-only key restricted to your demo index. Never enter an Admin API key.</p><label>Application ID<input name="appId" required pattern="[a-zA-Z0-9]+"></label><label>Search-only API key<input name="apiKey" required autocomplete="off"></label><label>Index name<input name="indexName" value="torah-demo-records" required></label><p class="fine">Saved only in this browser. Your key is sent to Algolia to run searches.</p><button class="primary">Connect and search</button><button type="button" id="disconnect">Use sample library</button></form></dialog><script src="config.js"></script><script src="app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Search Torah in Motion classes by topic, speaker, and date." />
+    <title>Torah in Motion | Class Library</title>
+    <link rel="stylesheet" href="https://use.typekit.net/cjc5mtm.css" />
+    <link rel="stylesheet" href="https://torahinmotion.org/themes/vwm_base/fonts/abriltext/stylesheet.css" />
+    <link rel="stylesheet" href="style.css?v=3" />
+    <script src="config.js"></script><script src="app.js?v=3" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="./" aria-label="Torah in Motion class library home">
+          <span class="brand-mark" aria-hidden="true">ת</span>
+          <strong>Torah in Motion</strong>
+        </a>
+      <button id="connect" class="text-button" type="button">Algolia settings</button></div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="shell">
+          <p class="eyebrow">Explore the library</p>
+          <h1>Ideas that keep moving.</h1>
+          <p class="hero-copy">Find classes that connect Jewish wisdom to the questions of today.</p>
+          <form id="search-form" class="search-form" role="search">
+            <label class="sr-only" for="query">Search classes</label>
+            <span class="search-icon" aria-hidden="true">⌕</span>
+            <input id="query" name="query" type="search" placeholder="Search titles and descriptions…" autocomplete="off" />
+            <button type="submit" class="sr-only">Search</button>
+          </form>
+          <section class="filter-panel" aria-label="Filter classes">
+            <div class="filters-heading">
+              <h2>Filter by</h2>
+              <div class="filter-actions">
+                <button id="clear-filters" class="text-button" type="button" hidden>Clear all</button>
+                <button id="toggle-filters" class="text-button" type="button" aria-expanded="true" aria-controls="filter-controls">Hide filters</button>
+              </div>
+            </div>
+            <div id="filter-controls" class="filter-controls">
+              <fieldset class="filter-group">
+                <legend>Speakers</legend>
+                <div class="facet-picker">
+                  <div class="facet-input-shell" id="speaker-input-shell">
+                    <div id="speaker-selected" class="selected-facets"></div>
+                    <label class="facet-search">
+                      <span class="sr-only">Search speakers</span>
+                      <input id="speaker-search" type="search" placeholder="Find a speaker…" autocomplete="off" aria-controls="speaker-options" />
+                    </label>
+                  </div>
+                  <div id="speaker-options" class="facet-options" aria-live="polite"></div>
+                </div>
+              </fieldset>
+              <fieldset class="filter-group">
+                <legend>Topics/Tags</legend>
+                <div class="facet-picker">
+                  <div class="facet-input-shell" id="tag-input-shell">
+                    <div id="tag-selected" class="selected-facets"></div>
+                    <label class="facet-search">
+                      <span class="sr-only">Search topics and tags</span>
+                      <input id="tag-search" type="search" placeholder="Find a topic or tag…" autocomplete="off" aria-controls="tag-options" />
+                    </label>
+                  </div>
+                  <div id="tag-options" class="facet-options" aria-live="polite"></div>
+                </div>
+              </fieldset>
+              <fieldset class="filter-group date-group">
+                <legend><span>Date range</span><button id="clear-dates" class="inline-clear" type="button" hidden>Clear</button></legend>
+                <div class="date-fields">
+                  <label class="date-field">
+                    <span>From</span>
+                    <span class="date-input-wrap"><input id="date-from" type="date" /><button id="clear-from" class="date-clear" type="button" aria-label="Clear start date" hidden>×</button></span>
+                  </label>
+                  <label class="date-field">
+                    <span>To</span>
+                    <span class="date-input-wrap"><input id="date-to" type="date" /><button id="clear-to" class="date-clear" type="button" aria-label="Clear end date" hidden>×</button></span>
+                  </label>
+                </div>
+              </fieldset>
+              <fieldset class="filter-group format-group">
+                <legend>Format</legend>
+                <div id="format-options" class="format-options" aria-label="Filter by format"></div>
+              </fieldset>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <div class="shell content-layout">
+        <section class="results" aria-labelledby="results-heading">
+          <div class="results-header">
+            <div>
+              <p class="eyebrow">Class library</p>
+              <h2 id="results-heading">All classes</h2>
+            </div>
+            <p id="result-count" class="result-count" aria-live="polite"></p>
+          </div>
+          <div id="status" class="status" role="status">Loading classes…</div>
+          <p id="connection-status" class="connection-status"></p><div id="class-list" class="class-list" aria-live="polite"></div><nav id="pagination" aria-label="Results pages"></nav>
+        </section>
+      </div>
+    </main>
+    <footer class="site-footer"><div class="shell">A sample search experience for Torah in Motion.</div></footer>
+<dialog id="settings"><form id="configform"><button type="button" id="close" class="close" aria-label="Close">×</button><h2>Connect your search</h2><p>Use an Algolia search-only key restricted to your demo index. Never enter an Admin API key.</p><label>Application ID<input name="appId" required pattern="[a-zA-Z0-9]+"></label><label>Search-only API key<input name="apiKey" required autocomplete="off"></label><label>Index name<input name="indexName" value="torah-demo-records" required></label><p class="fine">Saved only in this browser. Your key is sent to Algolia to run searches.</p><button class="primary">Connect and search</button><button type="button" id="disconnect">Use sample library</button></form></dialog>
+  </body>
+</html>
