@@ -38,3 +38,8 @@ Run `python3 -m http.server 8765` in this directory, then open http://localhost:
 
 ## Format filtering compatibility
 Format labels are normalized and augmented from verified audio/video links. In Algolia mode, format filtering is applied after media enrichment to all retrievable query matches, before result counts and pagination. This avoids losing matches with incomplete format metadata in an older upload. It may require extra search requests. If Algolia's retrieval limit prevents a complete set, the demo asks for a narrower query rather than showing incomplete results. Multiple formats use OR, consistent with the reference.
+
+## Series grouping
+Records with a nonempty `series` field become one expandable result per series, including series with only one matching talk. Parts sort by numeric part number (1, 2, 10); unnumbered talks follow in chronological order. Standalone records stay separate. Series names, not speaker names, identify groups so guest speakers in the same program remain together.
+
+Grouping happens before pagination in both local and Algolia modes. Expanded lists contain only talks matching current search and filters, clearly labeled when filtering; a single matching talk still appears under its series. Open/closed state persists during filtering and pagination in the current page session. Algolia matches are collected before grouping, so the demo asks for a narrower query if its index retrieval limit would produce incomplete groups. No index changes or re-upload is required for the bundled records; for other records, populate `series` to enable grouping.

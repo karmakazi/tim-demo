@@ -1,7 +1,7 @@
 const $ = selector => document.querySelector(selector);
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const normalize = value => String(value ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
-const state = {records: [], speakers: new Set(), topics: new Set(), formats: new Set(), page: 0, request: 0, facets: null};
+const state = {records: [], speakers: new Set(), topics: new Set(), formats: new Set(), page: 0, request: 0, facets: null, expandedSeries: new Set()};
 const pageSize = 20;
 let timer;
 let config = {...window.TORAH_SEARCH_CONFIG};
@@ -18,6 +18,7 @@ function record(item) {
   ) || {};
   const normalized = {
     ...item,
+    series: item.series || bundled.series || '',
     audio_url: item.audio_url || item.audioUrl || item['url of audio'] || bundled.audio_url || '',
     video_url: item.video_url || item.videoUrl || item['url of video'] || bundled.video_url || '',
     speakers: array(item.speakers), topics: array(item.topics), formats: array(item.formats)
@@ -76,11 +77,53 @@ function resultCard(r) {
   if (!actions.length && link) actions.push(['View class',link,'↗']);
   return `<article class="class-card"><div class="class-card-content"><div class="class-date">${escapeHtml(displayDate)}</div><h3>${link?`<a href="${escapeHtml(link)}" target="_blank" rel="noopener">${highlight(r.title)}</a>`:highlight(r.title)}</h3>${r.description?`<p>${highlight(r.description)}</p>`:''}<div class="card-meta"><span class="speaker">${escapeHtml(r.speakers.join(' · '))}</span>${r.topics.length?`<span class="tags"><strong>Topics/Tags:</strong> ${escapeHtml(r.topics.join(' · '))}</span>`:''}${r.series?`<span class="series">${escapeHtml(r.series)}</span>`:''}</div></div><div class="format-actions">${actions.map(([label,href,icon]) => `<a class="format-action" href="${escapeHtml(href)}" target="_blank" rel="noopener" aria-label="${escapeHtml(label+': '+r.title)}"><span aria-hidden="true">${icon}</span>${label}<span aria-hidden="true">→</span></a>`).join('')}</div></article>`;
 }
-function results(hits,total,pages) {
+function groupResults(matches) {
+  const groups = [], series = new Map();
+  const seen = new Set();
+  for (const r of matches) {
+    const identity = r.objectID || r.url;
+    if (identity && seen.has(identity)) continue;
+    if (identity) seen.add(identity);
+    const title = String(r.series || '').trim();
+    if (!title) { groups.push({type: 'item', record: r}); continue; }
+    const key = normalize(title);
+    if (!series.has(key)) {
+      const group = {type: 'series', key, title: title.replace(/^e-TiM:\s*/i,''), parts: []};
+      series.set(key, group); groups.push(group);
+    }
+    series.get(key).parts.push(r);
+  }
+  const part = r => {
+    const match = String(r.title || '').match(/\bpart\s+(\d+(?:\.\d+)?)/i);
+    return match ? Number(match[1]) : Infinity;
+  };
+  for (const group of series.values()) {
+    group.parts.sort((a,b) => {
+      const ap=part(a), bp=part(b);
+      if (ap !== bp) return ap < bp ? -1 : 1;
+      return (a.date||'').localeCompare(b.date||'') || String(a.title).localeCompare(String(b.title));
+    });
+  }
+  return groups;
+}
+function seriesCard(group) {
+  const speakers = [...new Set(group.parts.flatMap(r => r.speakers))];
+  return `<details class="series-result" data-series="${escapeHtml(group.key)}" ${state.expandedSeries.has(group.key)?'open':''}>
+    <summary><span class="series-summary"><span class="series-label">Series · ${group.parts.length} ${active()?'matching ':''}${group.parts.length===1?'talk':'talks'}</span><span class="series-title">${highlight(group.title)}</span><span class="series-speakers">${escapeHtml(speakers.join(' · '))}</span><span class="series-toggle"><span class="when-closed">Show talks in order</span><span class="when-open">Hide talks</span></span></span></summary>
+    <div class="series-parts">${active()?'<p class="series-note">Only parts matching your search and filters are shown.</p>':''}${group.parts.map(resultCard).join('')}</div>
+  </details>`;
+}
+function results(matches) {
+  const groups = groupResults(matches);
+  const pages = Math.ceil(groups.length/pageSize);
+  state.page = Math.max(0,Math.min(state.page,pages-1));
+  const visible = groups.slice(state.page*pageSize,(state.page+1)*pageSize);
+  const seriesCount = groups.filter(g => g.type==='series').length;
+  const singleCount = groups.length-seriesCount;
   $('#status').hidden = true;
-  $('#results-heading').textContent = active() ? 'Matching classes & articles' : 'All classes & articles';
-  $('#result-count').textContent = `${total.toLocaleString()} ${total === 1 ? 'result' : 'results'}`;
-  $('#class-list').innerHTML = hits.length ? hits.map(resultCard).join('') : '<div class="empty"><h3>No classes found</h3><p>Try broadening your search or clearing a filter.</p></div>';
+  $('#results-heading').textContent = active() ? 'Matching series & talks' : 'All series & talks';
+  $('#result-count').textContent = `${groups.length.toLocaleString()} ${groups.length===1?'result':'results'} · ${seriesCount} series · ${singleCount} standalone · ${matches.length} talks & articles`;
+  $('#class-list').innerHTML = visible.length ? visible.map(g => g.type==='series'?seriesCard(g):resultCard(g.record)).join('') : '<div class="empty"><h3>No classes found</h3><p>Try broadening your search or clearing a filter.</p></div>';
   const start = Math.max(0,Math.min(state.page-2,pages-5));
   $('#pagination').innerHTML = pages > 1 ? `${state.page?`<button data-page="${state.page-1}" aria-label="Previous page">←</button>`:''}${Array.from({length:Math.min(5,pages)},(_,i) => start+i).map(p => `<button data-page="${p}" ${p===state.page?'aria-current="page"':''}>${p+1}</button>`).join('')}${state.page<pages-1?`<button data-page="${state.page+1}" aria-label="Next page">→</button>`:''}` : '';
 }
@@ -105,29 +148,20 @@ async function run() {
       if (from) numericFilters.push('date_timestamp>='+Date.parse(from+'T00:00:00Z')/1000);
       if (to) numericFilters.push('date_timestamp<='+Date.parse(to+'T00:00:00Z')/1000);
       const params = {query:$('#query').value,facetFilters,numericFilters};
-      if (state.formats.size) {
-        // Filter using the same enriched media data as the action buttons.
-        // Applying an Algolia formats facet first would discard old uploads
-        // before their missing media fields can be filled from the sample.
-        const first = await searchAlgolia({...params,hitsPerPage:1000,page:0});
+      // Collect matches before grouping so a series never splits across pages.
+      const first = await searchAlgolia({...params,hitsPerPage:1000,page:0});
+      if (request !== state.request) return;
+      const hits = [...first.hits];
+      for (let p=1;p<first.nbPages;p++) {
+        const next = await searchAlgolia({...params,hitsPerPage:1000,page:p});
         if (request !== state.request) return;
-        const hits = [...first.hits];
-        for (let p=1;p<first.nbPages;p++) {
-          const next = await searchAlgolia({...params,hitsPerPage:1000,page:p});
-          if (request !== state.request) return;
-          hits.push(...next.hits);
-        }
-        if (hits.length < first.nbHits) throw Error('This search exceeds the index retrieval limit. Narrow your search before filtering by format.');
-        const matches = hits.map(record).filter(r => r.formats.some(v => state.formats.has(v)));
-        results(matches.slice(state.page*pageSize,(state.page+1)*pageSize),matches.length,Math.ceil(matches.length/pageSize));
-      } else {
-        const data = await searchAlgolia({...params,hitsPerPage:pageSize,page:state.page});
-        if (request !== state.request) return;
-        results(data.hits.map(record),data.nbHits,data.nbPages);
+        hits.push(...next.hits);
       }
+      if (hits.length < first.nbHits) throw Error('This search exceeds the index retrieval limit. Narrow your search to show complete series groups.');
+      const matches = hits.map(record).filter(r => !state.formats.size || r.formats.some(v => state.formats.has(v)));
+      results(matches);
     } else {
-      const matches = localMatches();
-      results(matches.slice(state.page*pageSize,(state.page+1)*pageSize),matches.length,Math.ceil(matches.length/pageSize));
+      results(localMatches());
     }
   } catch(error) {
     if (request !== state.request) return;
@@ -151,6 +185,11 @@ function clearAll() {
   for (const key of ['speakers','topics','formats']) state[key].clear();
   $('#speaker-search').value='';$('#tag-search').value='';changed();$('#query').focus();
 }
+$('#class-list').addEventListener('toggle',event => {
+  const detail = event.target;
+  if (!detail.matches('details[data-series]')) return;
+  detail.open ? state.expandedSeries.add(detail.dataset.series) : state.expandedSeries.delete(detail.dataset.series);
+}, true);
 $('#query').addEventListener('input',() => {clearTimeout(timer);timer=setTimeout(changed,180);});
 $('#search-form').addEventListener('submit',e => {e.preventDefault();clearTimeout(timer);changed();});
 for (const [key,prefix] of [['speakers','speaker'],['topics','tag']]) {
