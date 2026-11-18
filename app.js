@@ -1,7 +1,7 @@
 const $ = selector => document.querySelector(selector);
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const normalize = value => String(value ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
-const state = {records: [], speakers: new Set(), topics: new Set(), formats: new Set(), page: 0, request: 0, facets: null, expandedSeries: new Set()};
+const state = {records: [], speakers: new Set(), topics: new Set(), formats: new Set(), page: 0, request: 0, facets: null, expandedSeries: new Set(), indexSize: null};
 const pageSize = 20;
 let timer;
 const searchCache = new Map();
@@ -14,12 +14,14 @@ function record(item) {
   const array = value => Array.isArray(value) ? value : value ? [value] : [];
   // Older Algolia uploads may lack media fields. Match verified bundled links
   // by stable objectID or the original class URL, never by a guessed filename.
-  const bundled = state.records.find(r =>
-    (item.objectID && r.objectID === item.objectID) || (item.url && r.url === item.url)
-  ) || {};
+  const bundled = state.recordByID ?
+    (state.recordByID.get(item.objectID) || state.recordByURL.get(item.url) || {}) :
+    (state.records.find(r => (item.objectID && r.objectID === item.objectID) || (item.url && r.url === item.url)) || {});
   const normalized = {
     ...item,
     series: item.series || bundled.series || '',
+    series_id: item.series_id || bundled.series_id || '',
+    series_url: item.series_url || bundled.series_url || '',
     audio_url: item.audio_url || item.audioUrl || item['url of audio'] || bundled.audio_url || '',
     video_url: item.video_url || item.videoUrl || item['url of video'] || bundled.video_url || '',
     speakers: array(item.speakers), topics: array(item.topics), formats: array(item.formats)
@@ -32,7 +34,7 @@ function record(item) {
   normalized.formats = [...formats];
   return normalized;
 }
-function url(value) {try {const u = new URL(value);return u.protocol === 'https:' && ['torahinmotion.org','www.torahinmotion.org','youtu.be','youtube.com','www.youtube.com'].includes(u.hostname) ? u.href : '';} catch {return '';}}
+function url(value) {try {const u = new URL(value);return u.protocol === 'https:' && ['torahinmotion.org','www.torahinmotion.org','youtu.be','youtube.com','www.youtube.com','vimeo.com','www.vimeo.com','player.vimeo.com'].includes(u.hostname) ? u.href : '';} catch {return '';}}
 function highlight(value) {
   const terms = [...new Set(tokens($('#query').value))].sort((a,b) => b.length-a.length);
   if (!terms.length) return escapeHtml(value);
@@ -92,7 +94,7 @@ function groupResults(matches) {
     if (identity) seen.add(identity);
     const title = String(r.series || '').trim();
     if (!title) { groups.push({type: 'item', record: r}); continue; }
-    const key = normalize(title);
+    const key = r.series_id ? 'id:'+r.series_id : normalize(title);
     if (!series.has(key)) {
       const group = {type: 'series', key, title: title.replace(/^e-TiM:\s*/i,''), parts: []};
       series.set(key, group); groups.push(group);
@@ -100,6 +102,7 @@ function groupResults(matches) {
     series.get(key).parts.push(r);
   }
   const part = r => {
+    if (typeof r.part_number === 'number' && Number.isFinite(r.part_number)) return r.part_number;
     const match = String(r.title || '').match(/\bpart\s+(\d+(?:\.\d+)?)/i);
     return match ? Number(match[1]) : Infinity;
   };
@@ -116,7 +119,7 @@ function seriesCard(group) {
   const speakers = [...new Set(group.parts.flatMap(r => r.speakers))];
   return `<details class="series-result" data-series="${escapeHtml(group.key)}" ${state.expandedSeries.has(group.key)?'open':''}>
     <summary><span class="series-summary"><span class="series-label">Series · ${group.parts.length} ${active()?'matching ':''}${group.parts.length===1?'talk':'talks'}</span><span class="series-title">${highlight(group.title)}</span><span class="series-speakers">${escapeHtml(speakers.join(' · '))}</span><span class="series-toggle"><span class="when-closed">Show talks in order</span><span class="when-open">Hide talks</span></span></span></summary>
-    <div class="series-parts">${active()?'<p class="series-note">Only parts matching your search and filters are shown.</p>':''}${group.parts.map(resultCard).join('')}</div>
+    <div class="series-parts">${active()?'<p class="series-note">Only parts matching your search and filters are shown. The prototype may not contain the complete series.</p>':'<p class="series-note">Parts available in this prototype, in order. This may not be the complete series.</p>'}${group.parts.map(resultCard).join('')}</div>
   </details>`;
 }
 function results(matches) {
@@ -139,6 +142,44 @@ async function searchAlgolia(params) {
   if (!response.ok) throw Error(response.status===403?'Algolia rejected the search key. Check its search permission and index restriction.':response.status===404?'Algolia index not found. Check the index name in settings.':'Algolia search failed. Check that speakers, topics, and formats are enabled for faceting.');
   return response.json();
 }
+function rankSearchHits(hits, query) {
+  if (!query.trim()) return hits.sort((a,b) => (b.date||'').localeCompare(a.date||'') || String(a.objectID).localeCompare(String(b.objectID)));
+  const rank = r => {
+    const info=r._rankingInfo||{};
+    return [info.nbTypos||0,-(info.words||0),-(info.filters||0),info.proximityDistance||0,info.firstMatchedWord||0,-(info.nbExactWords||0),-(info.userScore||0)];
+  };
+  return hits.sort((a,b) => {
+    const ar=rank(a),br=rank(b);
+    for(let i=0;i<ar.length;i++) if(ar[i]!==br[i]) return ar[i]-br[i];
+    return (b.date||'').localeCompare(a.date||'') || String(a.objectID).localeCompare(String(b.objectID));
+  });
+}
+async function fetchCompleteSearch(params) {
+  const first=await searchAlgolia({...params,page:0});
+  let hits=[...first.hits];
+  for(let page=1;page<first.nbPages;page++) {
+    const next=await searchAlgolia({...params,page});hits.push(...next.hits);
+  }
+  if(hits.length>=first.nbHits) return hits;
+  // Each uploaded record belongs to a numeric partition of at most 500 items.
+  // Retrieve disjoint partitions to avoid Algolia's global pagination ceiling.
+  // Numeric filters do not require attributesForFaceting to be configured.
+  const partitions=[...new Set(state.records.map(r=>r.search_partition).filter(Number.isInteger))].sort((a,b)=>a-b);
+  if(!partitions.length) throw Error('This index exceeds its retrieval limit. Upload the expanded records.json to enable complete search.');
+  hits=[];
+  for(const partition of partitions) {
+    const result=await searchAlgolia({...params,numericFilters:[`search_partition=${partition}`],page:0});
+    const subset=[...result.hits];
+    for(let page=1;page<result.nbPages;page++) {
+      const next=await searchAlgolia({...params,numericFilters:[`search_partition=${partition}`],page});subset.push(...next.hits);
+    }
+    if(subset.length<result.nbHits) throw Error('An index partition exceeds its retrieval limit. Re-upload the expanded records.json.');
+    hits.push(...subset);
+  }
+  const unique=[...new Map(hits.map(r=>[r.objectID||r.url,r])).values()];
+  if(unique.length<first.nbHits) throw Error('The index and bundled dataset are out of sync. Upload the matching expanded records.json to retrieve all results.');
+  return rankSearchHits(unique,params.query);
+}
 async function getSearchMatches(query) {
   // Cache per connection and text query, so adjusting filters is immediate.
   // Filters use actual returned fields, even if the index has no facet setup.
@@ -146,25 +187,27 @@ async function getSearchMatches(query) {
   const cached = searchCache.get(key);
   if (cached && Date.now()-cached.time < 60000) return cached.promise;
   const promise = (async () => {
-    const params = {query,typoTolerance:true,minWordSizefor1Typo:5,minWordSizefor2Typos:8,hitsPerPage:1000};
-    const first = await searchAlgolia({...params,page:0});
-    const hits = [...first.hits];
-    for (let page=1;page<first.nbPages;page++) {
-      const next = await searchAlgolia({...params,page});
-      hits.push(...next.hits);
-    }
-    if (hits.length < first.nbHits) throw Error('This search exceeds the index retrieval limit. Narrow your search to show complete series and filter results.');
-    return hits.map(record);
+    const params = {query,typoTolerance:true,minWordSizefor1Typo:5,minWordSizefor2Typos:8,hitsPerPage:1000,getRankingInfo:true};
+    const hits=await fetchCompleteSearch(params);
+    return rankSearchHits(hits,query).map(record);
   })();
   searchCache.set(key,{time:Date.now(),promise});
   if (searchCache.size>10) searchCache.delete(searchCache.keys().next().value);
   try { return await promise; } catch(error) {searchCache.delete(key);throw error;}
 }
+function updateConnectionStatus() {
+  let text = online() ? `Algolia · ${config.indexName}` : `${state.records.length.toLocaleString()} public sample records · Local demo · Connect Algolia in settings`;
+  if (online() && state.indexSize !== null) {
+    text += ` · ${state.indexSize.toLocaleString()} records in index`;
+    if (state.indexSize < state.records.length) text += ` · Expanded prototype has ${state.records.length.toLocaleString()}; upload the new records file to include them.`;
+  }
+  $('#connection-status').textContent = text;
+}
 async function run() {
   const request = ++state.request;
   updateControls();
   $('#status').hidden = true;$('#status').classList.remove('error');
-  $('#connection-status').textContent = online() ? `Algolia · ${config.indexName}` : `${state.records.length} public sample records · Local demo · Connect Algolia in settings`;
+  updateConnectionStatus();
   const from = $('#date-from').value, to = $('#date-to').value;
   try {
     if (from && to && from > to) throw Error('The start date must be on or before the end date.');
@@ -189,6 +232,8 @@ async function loadOnlineFacets() {
   try {
     const hits = await getSearchMatches('');
     if (JSON.stringify(config)!==identity) return;
+    state.indexSize=hits.length;
+    updateConnectionStatus();
     state.facets = {speakers:{},topics:{}};
     for (const hit of hits) for (const field of ['speakers','topics']) for (const value of hit[field]) {
       state.facets[field][value] = (state.facets[field][value]||0)+1;
@@ -235,6 +280,6 @@ $('#toggle-filters').addEventListener('click',() => {const hidden=!$('#filter-co
 $('#pagination').addEventListener('click',e => {const b=e.target.closest('[data-page]');if(!b)return;state.page=Number(b.dataset.page);run();$('#results-heading').scrollIntoView({block:'start'});});
 $('#connect').addEventListener('click',() => {for(const k of ['appId','apiKey','indexName'])$('#configform').elements[k].value=config[k]|| (k==='indexName'?'torah-demo-records':'');$('#settings').showModal();});
 $('#close').addEventListener('click',() => $('#settings').close());
-$('#configform').addEventListener('submit',e => {e.preventDefault();config=Object.fromEntries([...new FormData(e.target)].map(([k,v]) => [k,v.trim()]));try{localStorage.setItem('torah-search-config',JSON.stringify(config));}catch{}$('#settings').close();state.page=0;run();loadOnlineFacets();});
-$('#disconnect').addEventListener('click',() => {config={indexName:'torah-demo-records'};try{localStorage.removeItem('torah-search-config');}catch{}state.facets=null;$('#settings').close();changed();});
-fetch('records.json').then(r => {if(!r.ok)throw Error('The sample records could not be loaded.');return r.json();}).then(data => {state.records=data.map(record);run();loadOnlineFacets();}).catch(error => {$('#status').textContent=error.message;$('#status').classList.add('error');});
+$('#configform').addEventListener('submit',e => {e.preventDefault();config=Object.fromEntries([...new FormData(e.target)].map(([k,v]) => [k,v.trim()]));try{localStorage.setItem('torah-search-config',JSON.stringify(config));}catch{}$('#settings').close();state.page=0;state.indexSize=null;run();loadOnlineFacets();});
+$('#disconnect').addEventListener('click',() => {config={indexName:'torah-demo-records'};try{localStorage.removeItem('torah-search-config');}catch{}state.facets=null;state.indexSize=null;$('#settings').close();changed();});
+fetch('records.json').then(r => {if(!r.ok)throw Error('The sample records could not be loaded.');return r.json();}).then(data => {state.records=data.map(record);state.recordByID=new Map(state.records.map(r=>[r.objectID,r]));state.recordByURL=new Map(state.records.map(r=>[r.url,r]));run();loadOnlineFacets();}).catch(error => {$('#status').textContent=error.message;$('#status').classList.add('error');});

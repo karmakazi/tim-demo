@@ -79,3 +79,39 @@ test('incomplete retrieval is reported instead of misleading empty filters',asyn
   await h.run('run()');assert.equal(h.element('#status').hidden,false);
   assert.match(h.element('#status').textContent,/retrieval limit/);
 });
+
+test('expanded index retrieves disjoint partitions beyond the 1000-hit ceiling',async()=>{
+  const h=setup();
+  const rows=Array.from({length:2000},(_,i)=>({objectID:String(i),title:`Talk ${i}`,series:`Series ${i%10}`,speakers:['Speaker'],topics:['Topic'],formats:['Audio'],date:'2026-11-13',search_partition:Math.floor(i/500),_rankingInfo:{nbTypos:0,words:1}}));
+  h.context.rows=rows;h.run('state.records=rows');
+  let requests=0;
+  h.context.searchAlgolia=async params=>{
+    requests++;
+    if(!params.numericFilters)return {hits:rows.slice(0,1000),nbHits:2000,nbPages:1};
+    const part=Number(params.numericFilters[0].split('=')[1]);
+    return {hits:rows.filter(r=>r.search_partition===part),nbHits:500,nbPages:1};
+  };
+  const complete=await h.run("getSearchMatches('')");
+  assert.equal(complete.length,2000);
+  assert.equal(new Set(complete.map(r=>r.objectID)).size,2000);
+  assert.equal(requests,5);
+  await h.run('run()');
+  assert.match(h.element('#result-count').textContent,/10 results · 10 series/);
+  assert.match(h.element('#result-count').textContent,/2000 talks & articles/);
+});
+
+test('incomplete partition export reports mismatch rather than losing content',async()=>{
+  const h=setup();h.run('state.records=rows.map(r=>({...r,search_partition:0}))');
+  h.context.searchAlgolia=async params=>params.numericFilters?{hits:h.context.rows,nbHits:6,nbPages:1}:{hits:h.context.rows,nbHits:2000,nbPages:1};
+  await h.run('run()');assert.match(h.element('#status').textContent,/out of sync/);
+});
+
+test('separate program IDs do not merge courses with identical display titles',()=>{
+  const h=setup();h.context.items=[
+    {objectID:'x',series:'Weekly class',series_id:'2025',part_number:10,date:'2025-01-01'},
+    {objectID:'y',series:'Weekly class',series_id:'2026',part_number:1,date:'2026-01-01'},
+    {objectID:'z',series:'Weekly class',series_id:'2025',part_number:2,date:'2025-01-01'}
+  ];
+  const groups=h.run('groupResults(items)');assert.equal(groups.length,2);
+  assert.deepEqual(Array.from(groups[0].parts,r=>r.part_number),[2,10]);
+});
