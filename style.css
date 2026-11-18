@@ -96,7 +96,7 @@ dialog .primary { width: 100%; padding: 10px; background: var(--forest); color: 
 mark { background: #fff0b8; }
 
 /* Keep date inputs on the same baseline as speaker and topic controls. */
-.header-inner { justify-content: flex-end; }
+.header-inner { justify-content: space-between; }
 .date-fields input { height: 39px; }
 .date-field { gap: 0; }
 .date-fields { align-items: start; }
