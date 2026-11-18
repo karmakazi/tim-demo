@@ -1,0 +1,35 @@
+/* Only spacing, accessibility, and basic responsive layout. Controls use browser defaults. */
+body { margin: 20px; }
+header { margin-bottom: 20px; }
+h1 { font-size: 24px; }
+#searchform { margin: 20px 0; }
+#query { width: min(550px, 90%); padding: 4px; }
+.library { display: flex; align-items: flex-start; gap: 36px; }
+aside { width: 220px; flex-shrink: 0; }
+.resultsarea { flex: 1; min-width: 0; }
+.filterheading { margin-bottom: 16px; }
+.filterheading h2 { display: inline; margin-right: 12px; }
+h2, .filtergroup h3 { font-size: 16px; }
+.filtergroup { margin-bottom: 20px; }
+.filtergroup label { display: block; margin: 6px 0; }
+.filtergroup select { max-width: 100%; }
+.n { margin-left: 8px; }
+.sample { margin: 24px 0; }
+.toolbar { margin-bottom: 20px; }
+.toolbar p { display: inline-block; margin-right: 20px; }
+.card { margin-bottom: 24px; }
+.card h3 { font-size: 18px; margin: 6px 0; }
+.card p { margin: 6px 0; }
+.meta span { margin-right: 6px; }
+.typeicon, .arrow, .dot { display: none; }
+.tag { margin-right: 10px; }
+#pagination button, #active button { margin: 4px; }
+#pagination [aria-current] { font-weight: bold; text-decoration: underline; }
+dialog { max-width: 420px; }
+dialog label { display: block; margin: 12px 0; }
+dialog input { display: block; width: 90%; }
+.close { float: right; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.skip { position: absolute; left: -10000px; }
+.skip:focus { position: static; }
+@media (max-width: 600px) { body { margin: 12px; } .library { display: block; } aside { width: auto; margin-bottom: 28px; } #filters { display: flex; flex-wrap: wrap; gap: 20px; } .filtergroup { max-width: 45%; } }

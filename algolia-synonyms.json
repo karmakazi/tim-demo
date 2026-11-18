@@ -1,0 +1,47 @@
+[
+  {
+    "objectID": "syn-0",
+    "type": "synonym",
+    "synonyms": [
+      "Shabbat",
+      "Shabbos"
+    ]
+  },
+  {
+    "objectID": "syn-1",
+    "type": "synonym",
+    "synonyms": [
+      "Bereishit",
+      "Breisheet",
+      "Bereshit",
+      "Bereishis"
+    ]
+  },
+  {
+    "objectID": "syn-2",
+    "type": "synonym",
+    "synonyms": [
+      "Chanukah",
+      "Hanukkah",
+      "Chanuka",
+      "Hanukah"
+    ]
+  },
+  {
+    "objectID": "syn-3",
+    "type": "synonym",
+    "synonyms": [
+      "Pesach",
+      "Passover"
+    ]
+  },
+  {
+    "objectID": "syn-4",
+    "type": "synonym",
+    "synonyms": [
+      "Sukkot",
+      "Succot",
+      "Sukkos"
+    ]
+  }
+]

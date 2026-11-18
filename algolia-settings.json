@@ -1,0 +1,16 @@
+{
+  "searchableAttributes": [
+    "title",
+    "speakers",
+    "topics",
+    "series",
+    "description"
+  ],
+  "attributesForFaceting": [
+    "content_type",
+    "formats",
+    "searchable(speakers)",
+    "searchable(topics)"
+  ],
+  "hitsPerPage": 10
+}
