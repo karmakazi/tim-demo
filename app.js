@@ -147,7 +147,13 @@ async function run() {
       const numericFilters = [];
       if (from) numericFilters.push('date_timestamp>='+Date.parse(from+'T00:00:00Z')/1000);
       if (to) numericFilters.push('date_timestamp<='+Date.parse(to+'T00:00:00Z')/1000);
-      const params = {query:$('#query').value,facetFilters,numericFilters};
+      const params = {
+        query:$('#query').value, facetFilters, numericFilters,
+        // Keep short names precise, while allowing mistakes in longer words.
+        typoTolerance: true,
+        minWordSizefor1Typo: 5,
+        minWordSizefor2Typos: 8
+      };
       // Collect matches before grouping so a series never splits across pages.
       const first = await searchAlgolia({...params,hitsPerPage:1000,page:0});
       if (request !== state.request) return;

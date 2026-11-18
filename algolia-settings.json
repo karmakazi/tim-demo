@@ -15,5 +15,8 @@
   "hitsPerPage": 10,
   "customRanking": [
     "desc(date_timestamp)"
-  ]
+  ],
+  "typoTolerance": true,
+  "minWordSizefor1Typo": 5,
+  "minWordSizefor2Typos": 8
 }
