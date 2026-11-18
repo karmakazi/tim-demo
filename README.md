@@ -11,11 +11,11 @@ A plain static prototype with 264 public records (120 classes and 144 articles).
 Alternatively, run the Vercel CLI from inside `vercel-demo` and follow its prompts. No environment variables are required for this static prototype.
 
 ## Connect Algolia
-1. Create an index named `torah_demo` and upload `records.json` using **Upload a File**.
+1. Create an index named `torah-demo-records` and upload `records.json` using **Upload a File**.
 2. In index configuration, set searchable attributes to `title`, `speakers`, `topics`, `series`, `description`, in that order.
 3. Set attributes for faceting to `content_type`, `formats`, `searchable(speakers)`, `searchable(topics)`. The corresponding settings are in `algolia-settings.json`.
 4. Add the synonym groups from `algolia-synonyms.json` in the Synonyms settings.
-5. Create an API key with only the **search** permission, restricted to `torah_demo`.
+5. Create an API key with only the **search** permission, restricted to `torah-demo-records`.
 6. Click **Connect Algolia** in the prototype and enter the Application ID, search-only key, and index name. Settings are saved in that browser only.
 
 To connect Algolia for every visitor, fill in `appId`, `apiKey`, and `indexName` in `config.js` and redeploy. These values are visible to visitors: use only the index-restricted search key. Never place an Admin or write key in this package. Vercel environment variables do not automatically populate static JavaScript.
