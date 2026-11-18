@@ -1,48 +1,39 @@
 # Torah in Motion library search demo
 
-A static Vercel-ready demo matching the layout and filter interactions of https://akelman.github.io/tim/example_library_search/. Uses 264 public records: 120 classes and 144 articles.
+A static Vercel-ready demo matching the layout and filter interactions of https://akelman.github.io/tim/example_library_search/. The public sample has 264 records: 120 classes and 144 articles.
 
-## Deploy on Vercel
-Import this repository. Select **Other** as the framework, leave Build Command empty, and use the repository root (`.`) as Output Directory. No install command or environment variables are required.
+## Deploy
+Import this repository into Vercel. Choose **Other** as framework, leave Build Command empty, and use the repository root (`.`) as Output Directory. No dependencies or environment variables are required.
 
-## Update the Algolia index
-**Re-upload the updated `records.json` to `torah-demo-records`.** Existing objectIDs are preserved so matching records can be replaced. The updated records include numeric `date_timestamp` fields (UTC seconds) required for date filters, and verified `audio_url` / `video_url` fields for direct media actions. An old upload still supports basic search. Direct media links for the 120 bundled classes are also supplied by matching objectID or class URL, even if the Algolia upload lacks media fields. Date filtering still requires updated records. New classes outside the bundled sample must include audio_url/video_url in Algolia.
+## Algolia connection
+Use **Algolia settings** to enter your Application ID, a search-only API key restricted to `torah-demo-records`, and that index name. Settings are saved in the current browser. To configure all visitors, put those public search credentials in `config.js` and redeploy. Never add Admin or write keys. Static JavaScript does not automatically read Vercel environment variables.
 
-Set these index settings in Algolia (JSON equivalent: `algolia-settings.json`):
-- Searchable attributes, in order: `title`, `speakers`, `topics`, `series`, `description`.
-- Attributes for faceting: `content_type`, `formats`, `searchable(speakers)`, `searchable(topics)`.
-- Custom ranking: descending `date_timestamp`, as a tie breaker after relevance.
-- Add synonym groups from `algolia-synonyms.json`.
+For a new index, upload `records.json`. Recommended ranking and searchable attributes are in `algolia-settings.json`; synonyms are in `algolia-synonyms.json`. Existing uploads do not need to be replaced for the prototype's speaker, topic, date, format, or series controls to work.
 
-Use **Algolia settings** to enter the Application ID, a search-only API key restricted to `torah-demo-records`, and the index name. Settings are saved only in the current browser. To connect every visitor, set those public search credentials in `config.js` and redeploy. Never add an Admin or write key to frontend files. Vercel environment variables do not automatically populate static JavaScript.
+## How filtering works
+Algolia searches the text query. The prototype retrieves all available matching records, enriches known media links/series from the bundled sample, then applies speaker, topic, format, and date filters before grouping and pagination. It reads the existing `date` values in YYYY-MM-DD form, not numeric timestamps. This also works if the Algolia index has no `attributesForFaceting` configured. Speaker/topic dropdown options come from the live record fields. Local sample mode uses the same filter rules.
 
-## Behavior
-- Search as you type, with a submit fallback.
-- Searchable speaker/topic dropdowns with multiple selections and removable chips.
-- OR within each filter group, AND between groups.
-- Inclusive start/end dates, individual date clear buttons, and range validation.
-- Article/audio/video toggle filters, Clear all, and Hide/Show filters.
-- Responsive result cards with Read article, Listen, and Watch video actions where source links exist.
-- Pagination at 20 results per page, empty results, and connection error feedback.
-- Local mode searches bundled records; connected mode queries Algolia and obtains speaker/topic options from its facets (up to 1,000 values per facet).
+Responses are cached in memory for up to 60 seconds per connection and text query, so selecting/clearing filters does not repeat the same network search. If Algolia's retrieval limit prevents collecting all matches, the UI asks for a narrower search rather than returning incomplete groups. For a substantially larger production index, move filtering/grouping server-side with properly configured index attributes.
 
-## Data and limits
-Public listings were sampled November 18, 2026. Recording contents are not transcribed. Article descriptions are excerpts. Class topics are populated where verified in the reference dataset, and otherwise omitted. No classification is inferred. Direct media links reflect the public source; a source can contain mismatched filenames or broken links. Dates show day precision because recording time ranges were not collected. All media opens externally.
+## UX
+- Search as you type; short words (1–4 letters) require precise prefix matching. Longer words retain typo tolerance.
+- Searchable multi-select speaker/topic dropdowns; removable selection chips; mouse and keyboard selection.
+- Date range inclusive of both boundaries, individual clears, Clear all, and invalid range feedback.
+- Article/audio/video format toggles, OR within groups and AND between groups.
+- One expandable result per series; numeric part order, then dates for unnumbered talks. Guest speakers in one program remain together.
+- Only parts matching the current query/filters are shown; the UI labels this explicitly.
+- Standalone content stays separate. Pagination operates on groups, not individual talks.
+- Direct Read article, Listen, and Watch video actions wherever source links are available.
 
-The layout and styling are adapted from the user-supplied reference page. Its externally hosted font stylesheets have local font fallbacks.
+## Data
+Public listings were sampled November 18, 2026. Descriptions are excerpts, not transcripts. Class topics are populated where verified in the reference dataset; otherwise omitted. Dates have day precision. Media URLs reflect the public source. The 120 sampled classes can recover direct media links by stable objectID or class URL when an older Algolia upload lacks those fields. New classes outside that sample need their own media fields.
 
-Local browser checks covered speaker suggestions/selection, combined date and speaker filters, clearing filters, and collapse/expand. JavaScript syntax is checked. Live Algolia behavior needs verification with your uploaded index and credentials; none are available in the repository.
+Layout and styles are adapted from the supplied reference. External font stylesheets have local fallbacks.
 
-## Preview locally
-Run `python3 -m http.server 8765` in this directory, then open http://localhost:8765. Serve over HTTP; opening HTML directly from disk does not load JSON reliably.
+## Verification
+Run `node --test tests/search.test.cjs` for regressions covering an index without facet configuration or numeric date fields, combined filtering, inclusive dates, caching, error recovery, and retrieval-limit handling. Run `node --check app.js` for syntax.
 
-## Format filtering compatibility
-Format labels are normalized and augmented from verified audio/video links. In Algolia mode, format filtering is applied after media enrichment to all retrievable query matches, before result counts and pagination. This avoids losing matches with incomplete format metadata in an older upload. It may require extra search requests. If Algolia's retrieval limit prevents a complete set, the demo asks for a narrower query rather than showing incomplete results. Multiple formats use OR, consistent with the reference.
+Browser verification against the actual live Algolia index covered selecting Marc Shapiro by mouse and keyboard, speaker plus November 1–16 dates, Chanukah topic selection, a November 13-only range, removing a selected topic, clearing all filters, and expanding the filtered series. Results were checked, not just input changes. No credentials are committed or written into test files.
 
-## Series grouping
-Records with a nonempty `series` field become one expandable result per series, including series with only one matching talk. Parts sort by numeric part number (1, 2, 10); unnumbered talks follow in chronological order. Standalone records stay separate. Series names, not speaker names, identify groups so guest speakers in the same program remain together.
-
-Grouping happens before pagination in both local and Algolia modes. Expanded lists contain only talks matching current search and filters, clearly labeled when filtering; a single matching talk still appears under its series. Open/closed state persists during filtering and pagination in the current page session. Algolia matches are collected before grouping, so the demo asks for a narrower query if its index retrieval limit would produce incomplete groups. No index changes or re-upload is required for the bundled records; for other records, populate `series` to enable grouping.
-
-## Typo tolerance
-Search requests explicitly allow no typo corrections for words of 1–4 characters, one typo for words of 5–7 characters, and up to two for words of 8 or more characters. Prefix matching remains available. This keeps `marc` from matching Marriage/Machzor while allowing misspellings in longer terms. The policy is applied per query word, so a longer word in a mixed query still gets typo tolerance. The same defaults are included in algolia-settings.json for future index setup; the deployed frontend applies them immediately without an index settings change.
+## Local preview
+Run `python3 -m http.server 8765` in this directory and open http://localhost:8765. Direct file opening does not reliably load JSON.

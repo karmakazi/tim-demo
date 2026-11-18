@@ -4,6 +4,7 @@ const normalize = value => String(value ?? '').toLowerCase().normalize('NFD').re
 const state = {records: [], speakers: new Set(), topics: new Set(), formats: new Set(), page: 0, request: 0, facets: null, expandedSeries: new Set()};
 const pageSize = 20;
 let timer;
+const searchCache = new Map();
 let config = {...window.TORAH_SEARCH_CONFIG};
 try { const stored = JSON.parse(localStorage.getItem('torah-search-config')); if (stored) config = {...config,...stored}; } catch {}
 const online = () => Boolean(config.appId && config.apiKey && config.indexName);
@@ -56,6 +57,11 @@ function renderFacet(key,prefix) {
   $('#'+prefix+'-options').innerHTML = matches.length ? matches.map(v => `<button class="facet-option" type="button" data-facet="${key}" data-value="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join('') : '<span class="status">No matches</span>';
 }
 function refreshFacets() {renderFacet('speakers','speaker');renderFacet('topics','tag');}
+function matchesFilters(r) {
+  const from = $('#date-from').value, to = $('#date-to').value;
+  return ['speakers','topics','formats'].every(k => !state[k].size || r[k].some(v => state[k].has(v))) &&
+    (!from || Boolean(r.date && r.date >= from)) && (!to || Boolean(r.date && r.date <= to));
+}
 function localMatches() {
   const query = tokens($('#query').value);
   return state.records.map(r => {
@@ -63,7 +69,7 @@ function localMatches() {
     const text = tokens([r.title,r.description,...r.speakers,...r.topics,r.series].join(' ')).join(' ');
     const match = query.every(t => text.includes(t));
     return {...r,_score:query.reduce((s,t) => s+(title.includes(t)?2:0),0),_match:match};
-  }).filter(r => r._match && ['speakers','topics','formats'].every(k => !state[k].size || r[k].some(v => state[k].has(v))) && (!$('#date-from').value || r.date >= $('#date-from').value) && (!$('#date-to').value || r.date <= $('#date-to').value))
+  }).filter(r => r._match && matchesFilters(r))
     .sort((a,b) => b._score-a._score || (b.date||'').localeCompare(a.date||''));
 }
 function resultCard(r) {
@@ -133,9 +139,30 @@ async function searchAlgolia(params) {
   if (!response.ok) throw Error(response.status===403?'Algolia rejected the search key. Check its search permission and index restriction.':response.status===404?'Algolia index not found. Check the index name in settings.':'Algolia search failed. Check that speakers, topics, and formats are enabled for faceting.');
   return response.json();
 }
+async function getSearchMatches(query) {
+  // Cache per connection and text query, so adjusting filters is immediate.
+  // Filters use actual returned fields, even if the index has no facet setup.
+  const key = JSON.stringify([config,query]);
+  const cached = searchCache.get(key);
+  if (cached && Date.now()-cached.time < 60000) return cached.promise;
+  const promise = (async () => {
+    const params = {query,typoTolerance:true,minWordSizefor1Typo:5,minWordSizefor2Typos:8,hitsPerPage:1000};
+    const first = await searchAlgolia({...params,page:0});
+    const hits = [...first.hits];
+    for (let page=1;page<first.nbPages;page++) {
+      const next = await searchAlgolia({...params,page});
+      hits.push(...next.hits);
+    }
+    if (hits.length < first.nbHits) throw Error('This search exceeds the index retrieval limit. Narrow your search to show complete series and filter results.');
+    return hits.map(record);
+  })();
+  searchCache.set(key,{time:Date.now(),promise});
+  if (searchCache.size>10) searchCache.delete(searchCache.keys().next().value);
+  try { return await promise; } catch(error) {searchCache.delete(key);throw error;}
+}
 async function run() {
   const request = ++state.request;
-  updateControls();refreshFacets();
+  updateControls();
   $('#status').hidden = true;$('#status').classList.remove('error');
   $('#connection-status').textContent = online() ? `Algolia · ${config.indexName}` : `${state.records.length} public sample records · Local demo · Connect Algolia in settings`;
   const from = $('#date-from').value, to = $('#date-to').value;
@@ -143,29 +170,9 @@ async function run() {
     if (from && to && from > to) throw Error('The start date must be on or before the end date.');
     if (online()) {
       $('#result-count').textContent = 'Searching…';
-      const facetFilters = ['speakers','topics'].filter(k => state[k].size).map(k => [...state[k]].map(v => `${k}:${v.replace(/^-/,'\\-')}`));
-      const numericFilters = [];
-      if (from) numericFilters.push('date_timestamp>='+Date.parse(from+'T00:00:00Z')/1000);
-      if (to) numericFilters.push('date_timestamp<='+Date.parse(to+'T00:00:00Z')/1000);
-      const params = {
-        query:$('#query').value, facetFilters, numericFilters,
-        // Keep short names precise, while allowing mistakes in longer words.
-        typoTolerance: true,
-        minWordSizefor1Typo: 5,
-        minWordSizefor2Typos: 8
-      };
-      // Collect matches before grouping so a series never splits across pages.
-      const first = await searchAlgolia({...params,hitsPerPage:1000,page:0});
+      const hits = await getSearchMatches($('#query').value);
       if (request !== state.request) return;
-      const hits = [...first.hits];
-      for (let p=1;p<first.nbPages;p++) {
-        const next = await searchAlgolia({...params,hitsPerPage:1000,page:p});
-        if (request !== state.request) return;
-        hits.push(...next.hits);
-      }
-      if (hits.length < first.nbHits) throw Error('This search exceeds the index retrieval limit. Narrow your search to show complete series groups.');
-      const matches = hits.map(record).filter(r => !state.formats.size || r.formats.some(v => state.formats.has(v)));
-      results(matches);
+      results(hits.filter(matchesFilters));
     } else {
       results(localMatches());
     }
@@ -180,16 +187,20 @@ async function loadOnlineFacets() {
   state.facets = null;
   if (!online()) {refreshFacets();return;}
   try {
-    const data = await searchAlgolia({query:'',hitsPerPage:0,facets:['speakers','topics'],maxValuesPerFacet:1000});
+    const hits = await getSearchMatches('');
     if (JSON.stringify(config)!==identity) return;
-    state.facets = data.facets || {};refreshFacets();
-  } catch { /* Main search displays connection failures; local facets remain available. */ }
+    state.facets = {speakers:{},topics:{}};
+    for (const hit of hits) for (const field of ['speakers','topics']) for (const value of hit[field]) {
+      state.facets[field][value] = (state.facets[field][value]||0)+1;
+    }
+    refreshFacets();
+  } catch { /* Main search displays failures; bundled options remain available. */ }
 }
 function changed() {state.page=0;run();}
 function clearAll() {
   $('#query').value='';$('#date-from').value='';$('#date-to').value='';
   for (const key of ['speakers','topics','formats']) state[key].clear();
-  $('#speaker-search').value='';$('#tag-search').value='';changed();$('#query').focus();
+  $('#speaker-search').value='';$('#tag-search').value='';refreshFacets();changed();$('#query').focus();
 }
 $('#class-list').addEventListener('toggle',event => {
   const detail = event.target;
@@ -200,11 +211,16 @@ $('#query').addEventListener('input',() => {clearTimeout(timer);timer=setTimeout
 $('#search-form').addEventListener('submit',e => {e.preventDefault();clearTimeout(timer);changed();});
 for (const [key,prefix] of [['speakers','speaker'],['topics','tag']]) {
   $('#'+prefix+'-search').addEventListener('input',() => renderFacet(key,prefix));
+  // Safari may blur the search input on pointer-down before firing click.
+  // Preserve focus so the focus-within dropdown stays visible until selection.
+  $('#'+prefix+'-options').addEventListener('pointerdown',e => {
+    if (e.target.closest('[data-facet]')) e.preventDefault();
+  });
   $('#'+prefix+'-options').addEventListener('click',e => {
     const b=e.target.closest('[data-facet]');if(!b)return;
-    state[key].add(b.dataset.value);$('#'+prefix+'-search').value='';changed();$('#'+prefix+'-search').focus();
+    state[key].add(b.dataset.value);$('#'+prefix+'-search').value='';renderFacet(key,prefix);changed();$('#'+prefix+'-search').focus();
   });
-  $('#'+prefix+'-selected').addEventListener('click',e => {const b=e.target.closest('[data-remove]');if(!b)return;state[key].delete(b.dataset.value);changed();$('#'+prefix+'-search').focus();});
+  $('#'+prefix+'-selected').addEventListener('click',e => {const b=e.target.closest('[data-remove]');if(!b)return;state[key].delete(b.dataset.value);renderFacet(key,prefix);changed();$('#'+prefix+'-search').focus();});
   $('#'+prefix+'-search').addEventListener('keydown',e => {if(e.key==='Escape'){$('#'+prefix+'-search').blur();}if(e.key==='ArrowDown'){e.preventDefault();$('#'+prefix+'-options button')?.focus();}});
   $('#'+prefix+'-options').addEventListener('keydown',e => {const buttons=[...$('#'+prefix+'-options').querySelectorAll('button')],i=buttons.indexOf(document.activeElement);if(e.key==='ArrowDown'){e.preventDefault();buttons[(i+1)%buttons.length]?.focus();}if(e.key==='ArrowUp'){e.preventDefault();buttons[(i-1+buttons.length)%buttons.length]?.focus();}if(e.key==='Escape')$('#'+prefix+'-search').focus();});
 }
