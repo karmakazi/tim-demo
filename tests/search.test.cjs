@@ -71,11 +71,11 @@ test('invalid ranges show an error, and clearing dates recovers',async()=>{
   await h.run('run()');assert.match(h.element('#status').textContent,/start date/);
   assert.equal(h.requests(),0);
   h.element('#date-from').value='';h.element('#date-to').value='';await h.run('run()');
-  assert.equal(h.element('#status').hidden,true);assert.match(h.element('#result-count').textContent,/6 talks & articles/);
+  assert.equal(h.element('#status').hidden,true);assert.equal(h.element('#search-results').hidden,true);
 });
 
 test('incomplete retrieval is reported instead of misleading empty filters',async()=>{
-  const h=setup();h.context.searchAlgolia=async()=>({hits:h.context.rows,nbHits:1001,nbPages:1});
+  const h=setup();h.element('#query').value='talk';h.context.searchAlgolia=async()=>({hits:h.context.rows,nbHits:1001,nbPages:1});
   await h.run('run()');assert.equal(h.element('#status').hidden,false);
   assert.match(h.element('#status').textContent,/retrieval limit/);
 });
@@ -95,13 +95,14 @@ test('expanded index retrieves disjoint partitions beyond the 1000-hit ceiling',
   assert.equal(complete.length,2000);
   assert.equal(new Set(complete.map(r=>r.objectID)).size,2000);
   assert.equal(requests,5);
+  h.run("state.formats.add('Audio')");
   await h.run('run()');
   assert.match(h.element('#result-count').textContent,/10 results · 10 series/);
   assert.match(h.element('#result-count').textContent,/2000 talks & articles/);
 });
 
 test('incomplete partition export reports mismatch rather than losing content',async()=>{
-  const h=setup();h.run('state.records=rows.map(r=>({...r,search_partition:0}))');
+  const h=setup();h.element('#query').value='talk';h.run('state.records=rows.map(r=>({...r,search_partition:0}))');
   h.context.searchAlgolia=async params=>params.numericFilters?{hits:h.context.rows,nbHits:6,nbPages:1}:{hits:h.context.rows,nbHits:2000,nbPages:1};
   await h.run('run()');assert.match(h.element('#status').textContent,/out of sync/);
 });
@@ -164,4 +165,34 @@ test('whole speaker names outrank longer-word prefix mentions',()=>{
     {objectID:'marc',title:'A class',speakers:['Dr. Marc Shapiro'],topics:[],series:'',description:'',date:'2025-01-01'}
   ];h.run('state.records=items');h.element('#query').value='marc';
   assert.equal(h.run('localMatches()')[0].objectID,'marc');
+});
+
+
+test('landing and whitespace input hide all results and do not run a search',async()=>{
+  const h=setup();await h.run('run()');
+  assert.equal(h.element('#search-results').hidden,true);
+  assert.equal(h.element('#class-list').innerHTML,'');
+  assert.equal(h.requests(),0);
+  h.element('#query').value='   ';await h.run('run()');
+  assert.equal(h.element('#search-results').hidden,true);assert.equal(h.requests(),0);
+});
+
+test('a search or filter reveals Search results; clearing everything hides them',async()=>{
+  const h=setup();h.element('#query').value='Palachi';await h.run('run()');
+  assert.equal(h.element('#search-results').hidden,false);
+  assert.equal(h.element('#results-heading').textContent,'Search results');
+  h.element('#query').value='';h.run("state.speakers.add('Dr. Marc Shapiro')");await h.run('run()');
+  assert.equal(h.element('#search-results').hidden,false);
+  h.run('state.speakers.clear()');await h.run('run()');
+  assert.equal(h.element('#search-results').hidden,true);
+  assert.equal(h.element('#class-list').innerHTML,'');
+  assert.equal(h.element('#pagination').innerHTML,'');
+});
+
+test('late search responses cannot repopulate results after clearing',async()=>{
+  const h=setup();let resolve;h.context.searchAlgolia=()=>new Promise(r=>{resolve=r;});
+  h.element('#query').value='Palachi';const pending=h.run('run()');
+  h.element('#query').value='';await h.run('run()');
+  resolve({hits:h.context.rows,nbHits:6,nbPages:1});await pending;
+  assert.equal(h.element('#search-results').hidden,true);assert.equal(h.element('#class-list').innerHTML,'');
 });

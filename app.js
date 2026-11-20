@@ -74,7 +74,7 @@ function highlight(value) {
   const pattern = new RegExp('('+terms.join('|')+')','gi');
   return String(value ?? '').split(pattern).map((part,i) => i%2 ? '<mark>'+escapeHtml(part)+'</mark>' : escapeHtml(part)).join('');
 }
-function active() {return Boolean($('#query').value || $('#date-from').value || $('#date-to').value || state.speakers.size || state.topics.size || state.formats.size);}
+function active() {return Boolean($('#query').value.trim() || $('#date-from').value || $('#date-to').value || state.speakers.size || state.topics.size || state.formats.size);}
 function updateControls() {
   $('#clear-filters').hidden = !active();
   $('#clear-dates').hidden = !$('#date-from').value && !$('#date-to').value;
@@ -162,7 +162,7 @@ function results(matches) {
   const seriesCount = groups.filter(g => g.type==='series').length;
   const singleCount = groups.length-seriesCount;
   $('#status').hidden = true;
-  $('#results-heading').textContent = active() ? 'Matching series & talks' : 'All series & talks';
+  $('#results-heading').textContent = 'Search results';
   $('#result-count').textContent = `${groups.length.toLocaleString()} ${groups.length===1?'result':'results'} · ${seriesCount} series · ${singleCount} standalone · ${matches.length} talks & articles`;
   $('#class-list').innerHTML = visible.length ? visible.map(g => g.type==='series'?seriesCard(g):resultCard(g.record)).join('') : '<div class="empty"><h3>No classes found</h3><p>Try broadening your search or clearing a filter.</p></div>';
   const start = Math.max(0,Math.min(state.page-2,pages-5));
@@ -241,9 +241,19 @@ function updateConnectionStatus() {
   }
   $('#connection-status').textContent = text;
 }
+function hideIdleResults() {
+  $('#search-results').hidden=true;
+  $('#result-count').textContent='';
+  $('#class-list').innerHTML='';
+  $('#pagination').innerHTML='';
+  $('#status').hidden=true;
+  state.page=0;
+}
 async function run() {
   const request = ++state.request;
   updateControls();
+  if (!active()) { hideIdleResults(); return; }
+  $('#search-results').hidden=false;
   $('#status').hidden = true;$('#status').classList.remove('error');
   updateConnectionStatus();
   const from = $('#date-from').value, to = $('#date-to').value;
@@ -290,7 +300,7 @@ $('#class-list').addEventListener('toggle',event => {
   if (!detail.matches('details[data-series]')) return;
   detail.open ? state.expandedSeries.add(detail.dataset.series) : state.expandedSeries.delete(detail.dataset.series);
 }, true);
-$('#query').addEventListener('input',() => {clearTimeout(timer);timer=setTimeout(changed,180);});
+$('#query').addEventListener('input',() => {clearTimeout(timer);if(!active())changed();else timer=setTimeout(changed,180);});
 $('#search-form').addEventListener('submit',e => {e.preventDefault();clearTimeout(timer);changed();});
 for (const [key,prefix] of [['speakers','speaker'],['topics','tag']]) {
   $('#'+prefix+'-search').addEventListener('input',() => renderFacet(key,prefix));
