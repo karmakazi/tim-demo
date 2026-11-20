@@ -10,6 +10,39 @@ try { const stored = JSON.parse(localStorage.getItem('torah-search-config')); if
 const online = () => Boolean(config.appId && config.apiKey && config.indexName);
 const synonymGroups = [['shabbat','shabbos'],['bereishit','breisheet','bereshit','bereishis'],['chanukah','hanukkah','chanuka','hanukah'],['pesach','passover'],['sukkot','succot','sukkos']];
 function tokens(text) {return normalize(text).replace(/[^a-z0-9\u0590-\u05ff]+/g,' ').split(' ').filter(Boolean).map(w => synonymGroups.find(g => g.includes(w))?.[0] || w);}
+// Remove conversational scaffolding, not negations or words inside quotes.
+const queryFillers = new Set(('a an the how what which who when where why is are was were do does did can could would should i me my we our you your please find show tell about of on in at to for from with and or classes class talks talk lectures lecture articles article').split(' '));
+function literalWords(text) { return normalize(text).replace(/[^a-z0-9\u0590-\u05ff]+/g,' ').trim().split(/\s+/).filter(Boolean); }
+function queryPlan(raw) {
+  const source=String(raw||'').replace(/[“”]/g,'"');
+  const pieces=source.split(/("[^"]+")/g).filter(Boolean);
+  const phrases=pieces.filter(p=>p.startsWith('"')&&p.endsWith('"')).map(p=>literalWords(p.slice(1,-1)).join(' ')).filter(Boolean);
+  const unquotedWords=p=>literalWords(p.replace(/\b(what|who|where|when|why|how)['’]s\b/gi,'$1 is'));
+  const meaningful=pieces.filter(p=>!p.startsWith('"')).flatMap(unquotedWords).filter(w=>!queryFillers.has(w));
+  const filterFillers=phrases.length>0||meaningful.length>0;
+  const processed=pieces.map(p=>{
+    if(p.startsWith('"')&&p.endsWith('"')) return '"'+literalWords(p.slice(1,-1)).join(' ')+'"';
+    return unquotedWords(p).filter(w=>!filterFillers||!queryFillers.has(w)).join(' ');
+  }).filter(Boolean).join(' ');
+  return {query:processed,phrases,keywords:tokens(processed)};
+}
+function searchFields(r) { return [r.title,...r.speakers,...r.topics,r.series,r.description].map(v=>literalWords(v).join(' ')); }
+function matchesPhrases(r,plan) {
+  const fields=searchFields(r);
+  return plan.phrases.every(p=>fields.some(f=>(' '+f+' ').includes(' '+p+' ')));
+}
+function relevanceScore(r,plan) {
+  if(!plan.keywords.length) return 0;
+  const fields=[[r.title,8],[r.topics.join(' '),7],[r.speakers.join(' '),8],[r.series,5],[r.description,1]];
+  const phrase=plan.keywords.join(' ');
+  return fields.reduce((score,[value,weight])=>{
+    const words=tokens(value),text=words.join(' ');
+    const matched=plan.keywords.filter(t=>words.some(w=>w.startsWith(t))).length;
+    const exact=plan.keywords.filter(t=>words.includes(t)).length;
+    const adjacent=plan.keywords.length>1&&(' '+text+' ').includes(' '+phrase+' ');
+    return score+(matched+exact*2)*weight+(adjacent?weight*4:0);
+  },0);
+}
 function record(item) {
   const array = value => Array.isArray(value) ? value : value ? [value] : [];
   // Older Algolia uploads may lack media fields. Match verified bundled links
@@ -36,7 +69,7 @@ function record(item) {
 }
 function url(value) {try {const u = new URL(value);return u.protocol === 'https:' && ['torahinmotion.org','www.torahinmotion.org','youtu.be','youtube.com','www.youtube.com','vimeo.com','www.vimeo.com','player.vimeo.com'].includes(u.hostname) ? u.href : '';} catch {return '';}}
 function highlight(value) {
-  const terms = [...new Set(tokens($('#query').value))].sort((a,b) => b.length-a.length);
+  const terms = [...new Set(queryPlan($('#query').value).keywords)].sort((a,b) => b.length-a.length);
   if (!terms.length) return escapeHtml(value);
   const pattern = new RegExp('('+terms.join('|')+')','gi');
   return String(value ?? '').split(pattern).map((part,i) => i%2 ? '<mark>'+escapeHtml(part)+'</mark>' : escapeHtml(part)).join('');
@@ -65,14 +98,13 @@ function matchesFilters(r) {
     (!from || Boolean(r.date && r.date >= from)) && (!to || Boolean(r.date && r.date <= to));
 }
 function localMatches() {
-  const query = tokens($('#query').value);
-  return state.records.map(r => {
-    const title = tokens(r.title).join(' ');
-    const text = tokens([r.title,r.description,...r.speakers,...r.topics,r.series].join(' ')).join(' ');
-    const match = query.every(t => text.includes(t));
-    return {...r,_score:query.reduce((s,t) => s+(title.includes(t)?2:0),0),_match:match};
-  }).filter(r => r._match && matchesFilters(r))
-    .sort((a,b) => b._score-a._score || (b.date||'').localeCompare(a.date||''));
+  const plan=queryPlan($('#query').value);
+  return state.records.map(r=>{
+    const words=searchFields(r).flatMap(tokens);
+    const match=plan.keywords.every(t=>words.some(w=>w.startsWith(t)))&&matchesPhrases(r,plan);
+    return {...r,_match:match,_score:relevanceScore(r,plan)};
+  }).filter(r=>r._match&&matchesFilters(r))
+    .sort((a,b)=>b._score-a._score||(b.date||'').localeCompare(a.date||''));
 }
 function resultCard(r) {
   const link = url(r.url);
@@ -144,12 +176,16 @@ async function searchAlgolia(params) {
 }
 function rankSearchHits(hits, query) {
   if (!query.trim()) return hits.sort((a,b) => (b.date||'').localeCompare(a.date||'') || String(a.objectID).localeCompare(String(b.objectID)));
+  const plan=queryPlan(query);
   const rank = r => {
     const info=r._rankingInfo||{};
     return [info.nbTypos||0,-(info.words||0),-(info.filters||0),info.proximityDistance||0,info.firstMatchedWord||0,-(info.nbExactWords||0),-(info.userScore||0)];
   };
   return hits.sort((a,b) => {
     const ar=rank(a),br=rank(b);
+    if(ar[0]!==br[0]) return ar[0]-br[0];
+    const relevance=relevanceScore(b,plan)-relevanceScore(a,plan);
+    if(relevance) return relevance;
     for(let i=0;i<ar.length;i++) if(ar[i]!==br[i]) return ar[i]-br[i];
     return (b.date||'').localeCompare(a.date||'') || String(a.objectID).localeCompare(String(b.objectID));
   });
@@ -187,9 +223,11 @@ async function getSearchMatches(query) {
   const cached = searchCache.get(key);
   if (cached && Date.now()-cached.time < 60000) return cached.promise;
   const promise = (async () => {
-    const params = {query,typoTolerance:true,minWordSizefor1Typo:5,minWordSizefor2Typos:8,hitsPerPage:1000,getRankingInfo:true};
+    const plan=queryPlan(query);
+    const params = {query:plan.query,typoTolerance:true,minWordSizefor1Typo:5,minWordSizefor2Typos:8,hitsPerPage:1000,getRankingInfo:true,
+      advancedSyntax:true,advancedSyntaxFeatures:['exactPhrase'],removeWordsIfNoResults:'none',removeStopWords:false};
     const hits=await fetchCompleteSearch(params);
-    return rankSearchHits(hits,query).map(record);
+    return rankSearchHits(hits.map(record).filter(r=>matchesPhrases(r,plan)),query);
   })();
   searchCache.set(key,{time:Date.now(),promise});
   if (searchCache.size>10) searchCache.delete(searchCache.keys().next().value);

@@ -121,3 +121,5 @@ mark { background: #fff0b8; }
 .series-note { padding-top: 16px; font-size: 12px; color: var(--muted); }
 .series-result > summary:focus-visible { outline: 2px solid var(--forest); outline-offset: 3px; }
 @media(max-width:760px) { .series-result > summary { padding: 18px; } .series-parts { padding: 0 18px 12px; } .result-count { max-width: 180px; text-align: right; } }
+
+.query-help { font-size: 12px; color: var(--muted); margin: 10px 0 16px; }

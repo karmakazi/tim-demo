@@ -18,5 +18,11 @@
   ],
   "typoTolerance": true,
   "minWordSizefor1Typo": 5,
-  "minWordSizefor2Typos": 8
+  "minWordSizefor2Typos": 8,
+  "advancedSyntax": true,
+  "advancedSyntaxFeatures": [
+    "exactPhrase"
+  ],
+  "removeWordsIfNoResults": "none",
+  "removeStopWords": false
 }

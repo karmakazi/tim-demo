@@ -115,3 +115,53 @@ test('separate program IDs do not merge courses with identical display titles',(
   const groups=h.run('groupResults(items)');assert.equal(groups.length,2);
   assert.deepEqual(Array.from(groups[0].parts,r=>r.part_number),[2,10]);
 });
+
+test('sentence cleanup preserves names, negations, Hebrew, and quoted stop words',()=>{
+  const h=setup();
+  assert.equal(h.run(`queryPlan('Can you find classes about mental health?').query`),'mental health');
+  assert.equal(h.run(`queryPlan('marc').query`),'marc');
+  assert.equal(h.run(`queryPlan("What's mental health?").query`),'mental health');
+  assert.equal(h.run(`queryPlan('Why is this not permitted?').query`),'this not permitted');
+  assert.equal(h.run(`queryPlan('What is "to be"?').query`),'"to be"');
+  assert.equal(h.run(`queryPlan('“mental health”').query`),'"mental health"');
+  assert.equal(h.run(`queryPlan('תפילה').query`),'תפילה');
+  assert.notEqual(h.run(`queryPlan('what is the').query`),'','filler-only input must not become an empty browse query');
+});
+
+test('phrase search requires adjacent words in the same field',()=>{
+  const h=setup();h.context.items=[
+    {objectID:'exact',title:'Mental health and Judaism',speakers:[],topics:[],series:'',description:'',date:''},
+    {objectID:'split',title:'Mental questions',speakers:[],topics:['Health'],series:'',description:'',date:''},
+    {objectID:'separate',title:'Mental and physical health',speakers:[],topics:[],series:'',description:'',date:''}
+  ];h.run('state.records=items');h.element('#query').value='"mental health"';
+  const matches=h.run('localMatches()');assert.deepEqual(Array.from(matches,r=>r.objectID),['exact']);
+  h.element('#query').value='Can you find classes about mental health?';
+  const natural=h.run('localMatches()');assert.equal(natural.length,3);assert.equal(natural[0].objectID,'exact');
+});
+
+test('title and topic matches outrank passing description mentions',()=>{
+  const h=setup();h.context.items=[
+    {objectID:'description',title:'Other subject',speakers:[],topics:[],series:'',description:'Mental health is mentioned here.',date:'2026-11-20'},
+    {objectID:'title',title:'Mental health',speakers:[],topics:[],series:'',description:'',date:'2025-01-01'},
+    {objectID:'topic',title:'An important discussion',speakers:[],topics:['Mental Health'],series:'',description:'',date:'2025-01-01'}
+  ];h.run('state.records=items');h.element('#query').value='mental health';
+  assert.deepEqual(Array.from(h.run('localMatches()'),r=>r.objectID),['title','topic','description']);
+});
+
+test('Algolia receives cleaned keywords and exact-phrase syntax without relaxed OR matching',async()=>{
+  const h=setup();let captured;
+  h.context.searchAlgolia=async p=>{captured=p;return {hits:[],nbHits:0,nbPages:0};};
+  await h.run(`getSearchMatches('Can you find classes about mental health?')`);
+  assert.equal(captured.query,'mental health');assert.equal(captured.advancedSyntax,true);
+  assert.deepEqual(Array.from(captured.advancedSyntaxFeatures),['exactPhrase']);
+  assert.equal(captured.removeWordsIfNoResults,'none');assert.equal(captured.minWordSizefor1Typo,5);
+});
+
+
+test('whole speaker names outrank longer-word prefix mentions',()=>{
+  const h=setup();h.context.items=[
+    {objectID:'march',title:'Marching on',speakers:['Other Speaker'],topics:[],series:'',description:'Marching',date:'2026-01-01'},
+    {objectID:'marc',title:'A class',speakers:['Dr. Marc Shapiro'],topics:[],series:'',description:'',date:'2025-01-01'}
+  ];h.run('state.records=items');h.element('#query').value='marc';
+  assert.equal(h.run('localMatches()')[0].objectID,'marc');
+});
